@@ -51,13 +51,32 @@ test("public views and practice tournament through a bye to the final", async ({
       .getByRole("button", { name: /Add 3 to/ })
       .first()
       .click();
-    await page.getByRole("button", { name: "Record double" }).click();
+    await expect(
+      page.getByRole("button", { name: "Subtract double" }),
+    ).toBeDisabled();
+    await page.getByRole("button", { name: "Add double" }).click();
+    await page.getByRole("button", { name: "Add double" }).click();
+    await page.getByRole("button", { name: "Subtract double" }).click();
+    await expect(page.getByLabel("Doubles", { exact: true })).toHaveText("1");
+    await page.getByRole("button", { name: "Undo last score action" }).click();
+    await expect(page.getByLabel("Doubles", { exact: true })).toHaveText("2");
+    await page.getByRole("button", { name: "Subtract double" }).click();
     await page
       .getByRole("button", { name: "Start timer", exact: true })
       .click();
     await expect(
       page.getByRole("button", { name: "Pause timer" }),
     ).toBeVisible();
+    await page.mouse.click(1, 1);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.getByRole("button", { name: "Close dialog" }).click();
+    await page.locator(".match-row").nth(i).click();
+    await expect(
+      page.getByRole("button", { name: "Pause timer" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Doubles", { exact: true })).toHaveText("1");
+    await expect(page.locator(".score-side.a .big-score")).toHaveText("3");
     if (i === 0) {
       const scoreButtons = await page
         .locator(".score-controls button")
@@ -134,4 +153,56 @@ test("public views and practice tournament through a bye to the final", async ({
     ),
   ).toBe(true);
   expect(errors).toEqual([]);
+});
+
+test("creation protects unfinished details and pool assignments from accidental dismissal", async ({
+  page,
+}) => {
+  await page.goto("/?practice=1");
+  await page.getByRole("button", { name: "Admin login", exact: true }).click();
+  await page.getByRole("button", { name: "Enter practice desk" }).click();
+  await page
+    .getByRole("button", { name: "Create tournament", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Close dialog" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Create tournament", exact: true })
+    .click();
+  await page.getByLabel("Tournament name").fill("Keep these details");
+  await page.getByLabel("Participants").fill("Ada\nBo\nCy\nDee");
+  await page.mouse.click(1, 1);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByLabel("Tournament name")).toHaveValue(
+    "Keep these details",
+  );
+  await page.getByRole("button", { name: "Close dialog" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Discard this tournament?" }),
+  ).toBeVisible();
+  await page.mouse.click(1, 1);
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("button", { name: "Keep editing" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Keep editing" }).click();
+  await expect(page.getByLabel("Participants")).toHaveValue("Ada\nBo\nCy\nDee");
+  await page.getByRole("button", { name: "Arrange pools" }).click();
+  await page.getByLabel("Number of pools").selectOption("2");
+  await page.mouse.click(1, 1);
+  await page.keyboard.press("Escape");
+  await expect(page.getByLabel("Number of pools")).toHaveValue("2");
+  await page.getByRole("button", { name: "Close dialog" }).click();
+  await page.getByRole("button", { name: "Close dialog" }).click();
+  await expect(page.getByLabel("Number of pools")).toHaveValue("2");
+  await page.getByRole("button", { name: "Close dialog" }).click();
+  await page
+    .getByRole("button", { name: "Discard tournament", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Create tournament", exact: true })
+    .click();
+  await expect(page.getByLabel("Tournament name")).toHaveValue("");
 });

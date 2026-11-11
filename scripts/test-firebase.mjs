@@ -206,6 +206,43 @@ try {
         .waitFor();
     },
   );
+  await check(
+    "server validates double subtraction and persists undo",
+    async () => {
+      let version = (await getDoc(doc(db, "tournaments", id))).data().version;
+      const change = async (command) => {
+        await mutate({
+          tournamentId: id,
+          expectedVersion: version,
+          requestId: randomUUID(),
+          command,
+        });
+        version++;
+      };
+      await change({ type: "reopen", matchId: match.id });
+      await assert.rejects(
+        mutate({
+          tournamentId: id,
+          expectedVersion: version,
+          requestId: randomUUID(),
+          command: { type: "double", matchId: match.id, delta: -1 },
+        }),
+        /between 0 and 99/,
+      );
+      await change({ type: "double", matchId: match.id, delta: 1 });
+      await change({ type: "double", matchId: match.id, delta: -1 });
+      assert.equal(
+        (await getDoc(doc(db, "tournaments", id))).data().matches[0].doubles,
+        0,
+      );
+      await change({ type: "undo", matchId: match.id });
+      assert.equal(
+        (await getDoc(doc(db, "tournaments", id))).data().matches[0].doubles,
+        1,
+      );
+      await change({ type: "submit", matchId: match.id, result: "a" });
+    },
+  );
   await check("login attempts are throttled", async () => {
     let throttled = false;
     for (let i = 0; i < 11; i++) {

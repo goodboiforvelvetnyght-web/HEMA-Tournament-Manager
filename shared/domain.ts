@@ -60,7 +60,13 @@ export const commandSchema = z.discriminatedUnion("type", [
       delta: z.number().int().min(-10).max(10),
     })
     .strict(),
-  z.object({ type: z.literal("double"), matchId: z.string() }).strict(),
+  z
+    .object({
+      type: z.literal("double"),
+      matchId: z.string(),
+      delta: z.union([z.literal(-1), z.literal(1)]).default(1),
+    })
+    .strict(),
   z.object({ type: z.literal("undo"), matchId: z.string() }).strict(),
   z
     .object({
@@ -355,9 +361,12 @@ export function applyCommand(
         m.events.push({ kind: "point", side: c.side, delta: c.delta, at: now });
         m.status = "live";
       } else if (c.type === "double") {
-        assert(m.doubles < 99, "Double limit reached.");
-        m.doubles++;
-        m.events.push({ kind: "double", side: "a", delta: 1, at: now });
+        assert(
+          m.doubles + c.delta >= 0 && m.doubles + c.delta <= 99,
+          "Doubles must be between 0 and 99.",
+        );
+        m.doubles += c.delta;
+        m.events.push({ kind: "double", side: "a", delta: c.delta, at: now });
         m.status = "live";
       } else if (c.type === "undo") {
         const e = m.events.pop();

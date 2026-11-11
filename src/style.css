@@ -1877,3 +1877,18 @@ td {
     padding: 18px 9px;
   }
 }
+
+.double-bar .double-controls {
+  gap: 8px;
+  flex-shrink: 0;
+}
+.double-controls .secondary {
+  width: 44px;
+  min-height: 44px;
+  padding: 10px;
+}
+.double-controls .double-value {
+  min-width: 28px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

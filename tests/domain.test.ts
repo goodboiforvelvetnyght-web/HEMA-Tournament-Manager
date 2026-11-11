@@ -253,3 +253,47 @@ describe("scoring and timer", () => {
     ).toThrow("Reopen");
   });
 });
+
+describe("double corrections", () => {
+  it("supports subtraction and undo, and recalculates both fencers after resubmission", () => {
+    let t = make(2);
+    const id = t.matches[0].id;
+    for (let i = 0; i < 3; i++)
+      t = applyCommand(t, { type: "double", matchId: id, delta: 1 }, i);
+    t = applyCommand(t, { type: "submit", matchId: id, result: "draw" }, 4);
+    expect(standings(t).map((r) => r.ranking)).toEqual([-3, -3]);
+    t = applyCommand(t, { type: "reopen", matchId: id }, 5);
+    t = applyCommand(t, { type: "double", matchId: id, delta: -1 }, 6);
+    expect(t.matches[0].doubles).toBe(2);
+    expect(t.matches[0].events.at(-1)?.delta).toBe(-1);
+    t = applyCommand(t, { type: "undo", matchId: id }, 7);
+    expect(t.matches[0].doubles).toBe(3);
+    t = applyCommand(t, { type: "double", matchId: id, delta: -1 }, 8);
+    t = applyCommand(t, { type: "submit", matchId: id, result: "draw" }, 9);
+    expect(
+      standings(t).map((r) => ({ doubles: r.doubles, ranking: r.ranking })),
+    ).toEqual([
+      { doubles: 2, ranking: -1 },
+      { doubles: 2, ranking: -1 },
+    ]);
+  });
+  it("rejects negative doubles, values over 99, and unsupported adjustments", () => {
+    const t = make(2);
+    const matchId = t.matches[0].id;
+    expect(() =>
+      applyCommand(t, { type: "double", matchId, delta: -1 }, 0),
+    ).toThrow("between 0 and 99");
+    for (const delta of [0, 2, -2, 0.5])
+      expect(() =>
+        applyCommand(t, { type: "double", matchId, delta }, 0),
+      ).toThrow();
+    t.matches[0].doubles = 99;
+    expect(() =>
+      applyCommand(t, { type: "double", matchId, delta: 1 }, 0),
+    ).toThrow("between 0 and 99");
+    expect(
+      applyCommand(t, { type: "double", matchId, delta: -1 }, 0).matches[0]
+        .doubles,
+    ).toBe(98);
+  });
+});

@@ -77,11 +77,15 @@ function Modal({
   children,
   onClose,
   wide = false,
+  dismissible = true,
+  closeDisabled = false,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  dismissible?: boolean;
+  closeDisabled?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -93,9 +97,13 @@ function Modal({
     <dialog
       ref={ref}
       className={`modal ${wide ? "wide" : ""}`}
-      onCancel={onClose}
+      onCancel={(e) => {
+        e.preventDefault();
+        if (dismissible && !closeDisabled) onClose();
+      }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (dismissible && !closeDisabled && e.target === e.currentTarget)
+          onClose();
       }}
     >
       <div className="modal-head">
@@ -103,6 +111,7 @@ function Modal({
         <button
           className="icon-button"
           aria-label="Close dialog"
+          disabled={closeDisabled}
           onClick={onClose}
         >
           <X size={20} />
@@ -1273,7 +1282,9 @@ function Create({
   const [step, setStep] = useState(1);
   const [name, setName] = useState("");
   const [weapon, setWeapon] = useState("Longsword");
-  const [date, setDate] = useState(new Date().toLocaleDateString("en-CA"));
+  const [initialDate] = useState(() => new Date().toLocaleDateString("en-CA"));
+  const [date, setDate] = useState(initialDate);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [names, setNames] = useState("");
   const [count, setCount] = useState(1);
   const [people, setPeople] = useState<{ name: string; pool: number }[]>([]);
@@ -1316,8 +1327,50 @@ function Create({
     (_, i) => people.filter((p) => p.pool === i).length,
   );
   const bouts = sizes.reduce((s, n) => s + (n * (n - 1)) / 2, 0);
+  const dirty =
+    name !== "" ||
+    names !== "" ||
+    weapon !== "Longsword" ||
+    date !== initialDate ||
+    step > 1;
+  function requestClose() {
+    if (busy) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  }
+  if (confirmDiscard)
+    return (
+      <Modal
+        title="Discard this tournament?"
+        onClose={() => setConfirmDiscard(false)}
+        dismissible={false}
+      >
+        <p className="muted">
+          Your tournament has not been created yet. Discarding it will remove
+          the details and pool assignments you entered.
+        </p>
+        <div className="modal-actions">
+          <button
+            className="secondary"
+            autoFocus
+            onClick={() => setConfirmDiscard(false)}
+          >
+            Keep editing
+          </button>
+          <button className="primary" onClick={onClose}>
+            Discard tournament
+          </button>
+        </div>
+      </Modal>
+    );
   return (
-    <Modal title="Create a tournament" onClose={onClose} wide>
+    <Modal
+      title="Create a tournament"
+      onClose={requestClose}
+      dismissible={false}
+      closeDisabled={busy}
+      wide
+    >
       <div className="wizard-steps">
         <span className={step === 1 ? "active" : ""}>01 · The field</span>
         <span className={step === 2 ? "active" : ""}>
@@ -1514,6 +1567,8 @@ function Scoring({
           : `Elimination · Round ${m.round}`
       }
       onClose={onClose}
+      dismissible={false}
+      closeDisabled={busy}
       wide
     >
       <div className="score-meta">
@@ -1627,22 +1682,36 @@ function Scoring({
       </div>
       <div className="double-bar">
         <div>
-          <span className="double-value">{m.doubles}</span>
           <span>
             <strong>Double hits</strong>
             <small>Counted against both fencers</small>
           </span>
         </div>
-        {editable && (
-          <button
-            className="secondary"
-            disabled={busy}
-            onClick={() => send({ type: "double", matchId: m.id })}
-          >
-            <Plus size={17} />
-            Record double
-          </button>
-        )}
+        <div className="double-controls">
+          {editable && (
+            <button
+              className="secondary"
+              aria-label="Subtract double"
+              disabled={busy || m.doubles === 0}
+              onClick={() => send({ type: "double", matchId: m.id, delta: -1 })}
+            >
+              <Minus size={17} />
+            </button>
+          )}
+          <output className="double-value" aria-label="Doubles">
+            {m.doubles}
+          </output>
+          {editable && (
+            <button
+              className="secondary"
+              aria-label="Add double"
+              disabled={busy || m.doubles >= 99}
+              onClick={() => send({ type: "double", matchId: m.id, delta: 1 })}
+            >
+              <Plus size={17} />
+            </button>
+          )}
+        </div>
       </div>
       {error && <Message>{error}</Message>}
       {editable && (
@@ -1741,7 +1810,7 @@ function Scoring({
               <li key={i}>
                 <span>
                   {e.kind === "double"
-                    ? "Double hit · both fencers"
+                    ? `${e.delta > 0 ? "+" : ""}${e.delta} double · both fencers`
                     : `${e.delta > 0 ? "+" : ""}${e.delta} · ${nameOf(t, e.side === "a" ? m.a : m.b)}`}
                 </span>
                 <time>
