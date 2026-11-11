@@ -51,3 +51,7 @@ Redeploy `adminLogin` so the function binds to the latest secret version. Existi
 See README for emulator commands. `storage.googleapis.com` is required to download the verified Firestore emulator, and `api.github.com` is needed for GitHub Actions monitoring. These additions are saved in the Codex environment-settings draft; saving/publishing the environment is separate from deploying the app.
 
 If Google setup cannot run, finish the independent tests and retain the deployment switch as false. Do not substitute a browser API key for Google credentials or put the shared password into frontend code.
+
+## Build-image retention
+
+The workflow attempts a seven-day cleanup policy for Cloud Functions build images. This maintenance step is reported separately from application validation. Firebase deploy uses its supported noninteractive `--force` behavior and explicitly names only `adminLogin` and `mutateTournament`, so it does not request deletion of unrelated functions. If the deployer cannot update artifact retention, deployment can still finish and the workflow reports the failed maintenance step. A project owner can run `npx firebase-tools functions:artifacts:setpolicy --project jhematournamentapp --location asia-southeast1 --days 7` from Google Cloud Shell to configure retention without granting the deployer broader IAM access.

@@ -96,7 +96,14 @@ jobs:
           project_id: jhematournamentapp
           workload_identity_provider: projects/583621113851/locations/global/workloadIdentityPools/hema-github/providers/github
           service_account: github-deploy@jhematournamentapp.iam.gserviceaccount.com
+      - name: Configure build-image retention
+        id: artifact_retention
+        continue-on-error: true
+        run: npx firebase functions:artifacts:setpolicy --project jhematournamentapp --location asia-southeast1 --days 7 --non-interactive
       - name: Deploy tested app
-        run: npx firebase deploy --project jhematournamentapp --only hosting,firestore:rules,firestore:indexes,functions,storage --non-interactive
+        run: npx firebase deploy --project jhematournamentapp --only hosting,firestore:rules,firestore:indexes,functions:adminLogin,functions:mutateTournament,storage --non-interactive --force
+      - name: Report artifact retention follow-up
+        if: steps.artifact_retention.outcome == 'failure'
+        run: echo 'Build-image retention could not be configured by the deployer. Inspect the retention step for the specific permission or configuration issue; application deployment remains independently verified below.' >> "$GITHUB_STEP_SUMMARY"
       - name: Check deployed website and authorization
         run: node scripts/check-deployment.mjs

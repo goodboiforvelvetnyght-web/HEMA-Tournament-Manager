@@ -102,7 +102,7 @@ policies=$(gcloud artifacts repositories describe gcf-artifacts --project="$PROJ
 if printf '%s' "$policies" | python3 -c 'import json,sys; sys.exit(0 if not json.load(sys.stdin).get("cleanupPolicies") else 1)'; then
   cleanup_file=$(mktemp)
   trap 'rm -f "$cleanup_file"' EXIT
-  printf '%s\n' '[{"name":"firebase-cli-cleanup-policy","action":{"type":"Delete"},"condition":{"tagState":"any","olderThan":"7d"}}]' > "$cleanup_file"
+  printf '%s\n' '[{"name":"firebase-functions-cleanup","action":{"type":"Delete"},"condition":{"tagState":"any","olderThan":"7d"}}]' > "$cleanup_file"
   gcloud artifacts repositories set-cleanup-policies gcf-artifacts --project="$PROJECT" --location="$REGION" --policy="$cleanup_file" --no-dry-run --quiet
 fi
 # Store only a salted password hash. Never commit a password or hash to Git.
