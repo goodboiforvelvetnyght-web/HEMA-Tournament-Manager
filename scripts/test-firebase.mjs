@@ -86,10 +86,9 @@ try {
     ),
   );
   await check("public direct writes denied", () =>
-    assert.rejects(
-      setDoc(doc(db, "tournaments", id), { name: "Hacked" }),
-      /permissions/,
-    ),
+    assert.rejects(setDoc(doc(db, "tournaments", id), { name: "Hacked" }), {
+      code: "permission-denied",
+    }),
   );
   const adminDb = getFirestore(app);
   connectFirestoreEmulator(adminDb, "127.0.0.1", 8080);
@@ -98,11 +97,13 @@ try {
     () =>
       assert.rejects(
         setDoc(doc(adminDb, "tournaments", id), { name: "Hacked" }),
-        /permissions/,
+        { code: "permission-denied" },
       ),
   );
   await check("private login metadata unreadable", () =>
-    assert.rejects(getDoc(doc(db, "loginAttempts", "test")), /permissions/),
+    assert.rejects(getDoc(doc(db, "loginAttempts", "test")), {
+      code: "permission-denied",
+    }),
   );
   const match = (await getDoc(doc(db, "tournaments", id))).data().matches[0];
   const score = {
