@@ -1,0 +1,102 @@
+name: Test and deploy Firebase
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: firebase-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      deployment_enabled: ${{ steps.config.outputs.enabled }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Read deployment switch
+        id: config
+        run: node --input-type=module -e "import fs from 'node:fs'; const c=JSON.parse(fs.readFileSync('.github/deployment.json')); if(typeof c.enabled!=='boolean') throw Error('Invalid deployment switch'); console.log('enabled='+c.enabled)" >> "$GITHUB_OUTPUT"
+      - name: Install locked dependencies
+        run: |
+          npm ci --no-audit --no-fund
+          npm --prefix functions ci --no-audit --no-fund
+      - name: Build and test tournament logic
+        run: |
+          npm run build
+          npm run build:backend
+          npm test
+          bash -n scripts/setup-github-deploy.sh
+      - name: Install browser
+        run: |
+          npx playwright install --with-deps chromium
+          node --input-type=module -e "import { chromium } from '@playwright/test'; console.log('CHROMIUM_PATH='+chromium.executablePath())" >> "$GITHUB_ENV"
+      - name: Test desktop and mobile workflows
+        run: npm run test:e2e
+      - name: Test Firebase authorization, transactions, and connected scoring
+        run: |
+          node scripts/prepare-emulators.mjs
+          npm run test:firebase
+      - name: Save tested website
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: tested-website
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Save browser evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: browser-evidence
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+  deploy:
+    needs: validate
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.validate.outputs.deployment_enabled == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://jhematournamentapp.web.app
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: |
+          npm ci --no-audit --no-fund
+          npm --prefix functions ci --no-audit --no-fund
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: tested-website
+          path: dist/
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: jhematournamentapp
+          workload_identity_provider: projects/583621113851/locations/global/workloadIdentityPools/hema-github/providers/github
+          service_account: github-deploy@jhematournamentapp.iam.gserviceaccount.com
+      - name: Deploy tested app
+        run: npx firebase deploy --project jhematournamentapp --only hosting,firestore:rules,firestore:indexes,functions,storage --non-interactive
+      - name: Check deployed website and authorization
+        run: node scripts/check-deployment.mjs
