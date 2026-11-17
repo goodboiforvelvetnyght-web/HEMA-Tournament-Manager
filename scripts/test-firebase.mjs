@@ -243,6 +243,52 @@ try {
       await change({ type: "submit", matchId: match.id, result: "a" });
     },
   );
+  await check(
+    "archive, restore, and permanent deletion enforce authorization and versions",
+    async () => {
+      let version = (await getDoc(doc(db, "tournaments", id))).data().version;
+      const payload = (command) => ({
+        tournamentId: id,
+        expectedVersion: version,
+        requestId: randomUUID(),
+        command,
+      });
+      await assert.rejects(
+        httpsCallable(
+          publicFuncs,
+          "mutateTournament",
+        )(payload({ type: "delete", confirmation: "Connected Test Cup" })),
+        /Admin access/,
+      );
+      await mutate(payload({ type: "archive", archived: true }));
+      version++;
+      assert((await getDoc(doc(db, "tournaments", id))).data().archivedAt);
+      await assert.rejects(
+        mutate(payload({ type: "reopen", matchId: match.id })),
+        /Restore/,
+      );
+      await mutate(payload({ type: "archive", archived: false }));
+      version++;
+      await assert.rejects(
+        mutate(payload({ type: "delete", confirmation: "wrong" })),
+        /Type the tournament name/,
+      );
+      await assert.rejects(
+        mutate({
+          ...payload({ type: "delete", confirmation: "Connected Test Cup" }),
+          expectedVersion: version - 1,
+        }),
+        /Another judge/,
+      );
+      const deletion = payload({
+        type: "delete",
+        confirmation: "Connected Test Cup",
+      });
+      await mutate(deletion);
+      await mutate(deletion);
+      assert.equal((await getDoc(doc(db, "tournaments", id))).exists(), false);
+    },
+  );
   await check("login attempts are throttled", async () => {
     let throttled = false;
     for (let i = 0; i < 11; i++) {

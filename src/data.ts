@@ -10,6 +10,7 @@ import {
 import { httpsCallable } from "firebase/functions";
 import { auth, db, functions } from "./firebase";
 import {
+  deleteSchema,
   applyCommand,
   createTournament,
   type Tournament,
@@ -141,6 +142,13 @@ export function useTournaments() {
     if (!admin) throw new Error("Admin access required.");
     const id = t?.id || crypto.randomUUID();
     if (practice) {
+      if (t && (command as { type?: string })?.type === "delete") {
+        const deletion = deleteSchema.parse(command);
+        if (deletion.confirmation !== t.name)
+          throw new Error("Type the tournament name to confirm deletion.");
+        setTournaments((old) => old.filter((item) => item.id !== id));
+        return id;
+      }
       const next = t
         ? applyCommand(t, command, Date.now())
         : createTournament(command, id, Date.now());

@@ -139,6 +139,11 @@ export default function App() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
+  const [listView, setListView] = useState("active");
+  const [manage, setManage] = useState(false);
+  const visibleTournaments = store.tournaments.filter((item) =>
+    listView === "archived" ? !!item.archivedAt : !item.archivedAt,
+  );
   const t = store.tournaments.find((t) => t.id === selected);
   const match = t?.matches.find((m) => m.id === matchId);
   useEffect(() => {
@@ -277,12 +282,17 @@ export default function App() {
                   <span className="eyebrow">ON THE FIELD</span>
                   <h2>
                     Tournaments{" "}
-                    <span className="count">{store.tournaments.length}</span>
+                    <span className="count">{visibleTournaments.length}</span>
                   </h2>
                 </div>
-                <span className="muted small">
-                  Round robin & single elimination
-                </span>
+                <select
+                  aria-label="Tournament archive view"
+                  value={listView}
+                  onChange={(e) => setListView(e.target.value)}
+                >
+                  <option value="active">Active tournaments</option>
+                  <option value="archived">Archived tournaments</option>
+                </select>
               </div>
               {store.error && (
                 <Message>
@@ -294,9 +304,9 @@ export default function App() {
                   <div className="spinner" />
                   Connecting to the scoreboard…
                 </div>
-              ) : store.tournaments.length ? (
+              ) : visibleTournaments.length ? (
                 <div className="tournament-grid">
-                  {store.tournaments.map((item) => (
+                  {visibleTournaments.map((item) => (
                     <button
                       className="tournament-card"
                       key={item.id}
@@ -347,7 +357,11 @@ export default function App() {
                 !store.error && (
                   <div className="empty">
                     <Swords size={35} />
-                    <h3>The field is yours.</h3>
+                    <h3>
+                      {listView === "archived"
+                        ? "No archived tournaments."
+                        : "The field is yours."}
+                    </h3>
                     <p>
                       The first tournament will appear here when an admin
                       creates it.
@@ -408,12 +422,23 @@ export default function App() {
                 </div>
               </div>
               {store.admin && (
-                <button className="secondary" onClick={exportTournament}>
-                  <Download size={16} />
-                  Export backup
-                </button>
+                <div className="management-actions">
+                  <button className="secondary" onClick={exportTournament}>
+                    <Download size={16} />
+                    Export backup
+                  </button>
+                  <button className="secondary" onClick={() => setManage(true)}>
+                    Manage tournament
+                  </button>
+                </div>
               )}
             </div>
+            {t.archivedAt && (
+              <div className="notice">
+                Archived · Results remain public. Restore this tournament to
+                resume scoring or make changes.
+              </div>
+            )}
             <div className="tabs" role="tablist" aria-label="Tournament views">
               {[
                 { id: "overview", label: "Overview", icon: LayoutGrid },
@@ -444,7 +469,7 @@ export default function App() {
             {tab === "matches" && (
               <Matches
                 t={t}
-                admin={store.admin}
+                admin={store.admin && !t.archivedAt}
                 busy={busy}
                 onMatch={setMatchId}
                 run={run}
@@ -454,7 +479,7 @@ export default function App() {
             {tab === "bracket" && (
               <Bracket
                 t={t}
-                admin={store.admin}
+                admin={store.admin && !t.archivedAt}
                 busy={busy}
                 run={run}
                 onMatch={setMatchId}
@@ -486,6 +511,25 @@ export default function App() {
           {toast}
         </div>
       )}
+      {manage && t && store.admin && (
+        <ManageTournament
+          t={t}
+          onClose={() => setManage(false)}
+          save={async (command) => {
+            await store.mutate(t, command);
+            setManage(false);
+            if (command.type === "delete") {
+              select("");
+              setToast("Tournament deleted");
+            } else
+              setToast(
+                command.archived
+                  ? "Tournament archived"
+                  : "Tournament restored",
+              );
+          }}
+        />
+      )}
       {loginOpen && (
         <Login onClose={() => setLoginOpen(false)} login={store.login} />
       )}
@@ -504,7 +548,7 @@ export default function App() {
         <Scoring
           t={t}
           m={match}
-          admin={store.admin}
+          admin={store.admin && !t.archivedAt}
           busy={busy}
           error={error}
           onClose={() => {
@@ -1831,6 +1875,113 @@ function Scoring({
           standings.
         </p>
       )}
+    </Modal>
+  );
+}
+
+function ManageTournament({
+  t,
+  onClose,
+  save,
+}: {
+  t: Tournament;
+  onClose: () => void;
+  save: (
+    command:
+      | { type: "delete"; confirmation: string }
+      | { type: "archive"; archived: boolean },
+  ) => Promise<void>;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(
+    command:
+      | { type: "delete"; confirmation: string }
+      | { type: "archive"; archived: boolean },
+  ) {
+    setBusy(true);
+    setError("");
+    try {
+      await save(command);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to save.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal
+      title={deleting ? "Delete tournament permanently?" : "Manage tournament"}
+      onClose={onClose}
+      dismissible={false}
+      closeDisabled={busy}
+    >
+      <h3>{t.name}</h3>
+      {deleting ? (
+        <>
+          <p className="muted">
+            This permanently removes this tournament, its participants, scores,
+            standings, and bracket. Export a backup before deleting if you need
+            a copy.
+          </p>
+          <label className="field">
+            Type the tournament name to confirm
+            <input
+              autoFocus
+              value={confirmation}
+              onChange={(e) => setConfirmation(e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <div className="modal-actions">
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => setDeleting(false)}
+            >
+              Cancel deletion
+            </button>
+            <button
+              className="primary"
+              disabled={busy || confirmation !== t.name}
+              onClick={() => void submit({ type: "delete", confirmation })}
+            >
+              {busy ? "Deleting…" : "Delete permanently"}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="muted">
+            {t.archivedAt
+              ? "Restore this tournament to the active list and enable scoring again."
+              : "Archive moves this tournament out of the active list and preserves its public results. Running timers will pause and scoring will be locked until you restore it."}
+          </p>
+          <button
+            className="primary full"
+            disabled={busy}
+            onClick={() =>
+              void submit({ type: "archive", archived: !t.archivedAt })
+            }
+          >
+            {t.archivedAt ? "Restore tournament" : "Archive tournament"}
+          </button>
+          <hr className="management-divider" />
+          <p className="muted">
+            Permanently remove this tournament and its results.
+          </p>
+          <button
+            className="text-link"
+            disabled={busy}
+            onClick={() => setDeleting(true)}
+          >
+            Delete tournament…
+          </button>
+        </>
+      )}
+      {error && <Message>{error}</Message>}
     </Modal>
   );
 }

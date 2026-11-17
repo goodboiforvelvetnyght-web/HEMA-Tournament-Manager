@@ -297,3 +297,22 @@ describe("double corrections", () => {
     ).toBe(98);
   });
 });
+
+it("archives pause timers, preserve results, lock scoring, and can be restored", () => {
+  let t = make(2);
+  const matchId = t.matches[0].id;
+  t = applyCommand(t, { type: "timer", matchId, action: "start" }, 1000);
+  t = applyCommand(t, { type: "archive", archived: true }, 4000);
+  expect(t.archivedAt).toBe(4000);
+  expect(t.matches[0].startedAt).toBeNull();
+  expect(t.matches[0].elapsedMs).toBe(3000);
+  expect(() =>
+    applyCommand(t, { type: "score", matchId, side: "a", delta: 1 }, 5000),
+  ).toThrow("Restore");
+  t = applyCommand(t, { type: "archive", archived: false }, 6000);
+  expect(t.archivedAt).toBeNull();
+  expect(
+    applyCommand(t, { type: "score", matchId, side: "a", delta: 1 }, 7000)
+      .matches[0].scoreA,
+  ).toBe(1);
+});

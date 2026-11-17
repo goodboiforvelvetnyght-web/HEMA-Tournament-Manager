@@ -7,6 +7,7 @@ import { setGlobalOptions } from "firebase-functions/v2";
 import { createHash, scryptSync, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import {
+  deleteSchema,
   applyCommand,
   createTournament,
   type Tournament,
@@ -110,6 +111,21 @@ export const mutateTournament = onCall(options, async (request) => {
             "aborted",
             "Another judge updated this tournament. Your view has refreshed; please try again.",
           );
+        if ((data.command as { type?: string })?.type === "delete") {
+          const deletion = deleteSchema.parse(data.command);
+          if (deletion.confirmation !== old.name)
+            throw new HttpsError(
+              "invalid-argument",
+              "Type the tournament name to confirm deletion.",
+            );
+          tx.delete(ref);
+          tx.set(receipt, {
+            tournamentId: data.tournamentId,
+            fingerprint,
+            at: now,
+          });
+          return;
+        }
         tournament = applyCommand(old, data.command, now);
       }
       if (Buffer.byteLength(JSON.stringify(tournament)) > 900000)

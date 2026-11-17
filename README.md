@@ -68,8 +68,12 @@ A tournament is a public Firestore document containing named participants, match
 
 This first version supports 24 participants per tournament and 12 pools, with at least two fencers in each pool. Match scores are limited to 999 and doubles to 99. Undo/history retain the most recent 20 point/double actions per match. Export downloads a JSON backup; there is no import/restore UI yet. Network access is required for official scoring, and a conflicting write prompts the judge to review and retry. Practice mode is the only offline workflow.
 
-Participant profiles, uploads, automatic time/arena allocation, tournament deletion, separate judge identities, full audit archives, and multiple concurrent editable versions are outside this release. Storage is configured with deny-all rules until an upload feature is added. Public data should contain only the display names intended for the scoreboard.
+Participant profiles, uploads, automatic time/arena allocation, separate judge identities, full audit archives, and multiple concurrent editable versions are outside this release. Storage is configured with deny-all rules until an upload feature is added. Public data should contain only the display names intended for the scoreboard.
 
 ## Deployment
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the Google connection and GitHub Actions workflow. The first commit intentionally leaves deployment disabled until Google setup and all CI checks succeed.
+
+## Archive and delete
+
+Admins can open a tournament and choose **Manage tournament** to archive, restore, or delete it. Archived tournaments appear in the Archived tournaments view and retain publicly readable results. Archiving pauses running timers and blocks scoring or bracket changes until restored. Permanent deletion requires typing the exact tournament name; export a backup first if needed. Server-side admin, version, and idempotency checks protect these actions. Deletion removes the tournament document and its embedded participants and results; private request receipts and login security metadata are retained.

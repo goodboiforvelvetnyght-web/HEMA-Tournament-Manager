@@ -37,6 +37,7 @@ export type Tournament = {
   version: number;
   createdAt: number;
   updatedAt: number;
+  archivedAt?: number | null;
 };
 const text = z.string().trim().min(1).max(60);
 export const createSchema = z
@@ -51,7 +52,11 @@ export const createSchema = z
     poolCount: z.number().int().min(1).max(12),
   })
   .strict();
+export const deleteSchema = z
+  .object({ type: z.literal("delete"), confirmation: z.string() })
+  .strict();
 export const commandSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("archive"), archived: z.boolean() }).strict(),
   z
     .object({
       type: z.literal("score"),
@@ -287,6 +292,21 @@ export function applyCommand(
 ): Tournament {
   const c = commandSchema.parse(raw);
   const t = structuredClone(source);
+  if (c.type === "archive") {
+    t.archivedAt = c.archived ? now : null;
+    if (c.archived)
+      for (const m of t.matches) {
+        m.elapsedMs = elapsed(m, now);
+        m.startedAt = null;
+      }
+    t.version++;
+    t.updatedAt = now;
+    return t;
+  }
+  assert(
+    !t.archivedAt,
+    "Restore this archived tournament before making changes.",
+  );
   if (c.type === "bracket") {
     assert(!t.bracketRound, "The bracket is already confirmed.");
     assert(

@@ -206,3 +206,74 @@ test("creation protects unfinished details and pool assignments from accidental 
     .click();
   await expect(page.getByLabel("Tournament name")).toHaveValue("");
 });
+
+test("admin archives, restores and confirms permanent deletion", async ({
+  page,
+}) => {
+  await page.goto("/?practice=1");
+  await page.getByRole("button", { name: "Admin login", exact: true }).click();
+  await page.getByRole("button", { name: "Enter practice desk" }).click();
+  await page.getByRole("button", { name: /Autumn Open/ }).click();
+  await page.getByRole("button", { name: "Manage tournament" }).click();
+  await page
+    .getByRole("button", { name: "Archive tournament", exact: true })
+    .click();
+  await expect(
+    page.getByText("Archived · Results remain public.", { exact: false }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "Matches", exact: true }).click();
+  await page.locator(".match-row").first().click();
+  await expect(
+    page.getByRole("button", { name: "Reopen to correct" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Close dialog" }).click();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Tournaments" })
+    .click();
+  await expect(page.getByRole("button", { name: /Autumn Open/ })).toHaveCount(
+    0,
+  );
+  await page.getByLabel("Tournament archive view").selectOption("archived");
+  await page.getByRole("button", { name: /Autumn Open/ }).click();
+  await page.getByRole("button", { name: "Manage tournament" }).click();
+  await page
+    .getByRole("button", { name: "Restore tournament", exact: true })
+    .click();
+  await expect(
+    page.getByText("Archived · Results remain public.", { exact: false }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Manage tournament" }).click();
+  await page
+    .getByRole("button", { name: "Delete tournament…", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Delete permanently", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByLabel("Type the tournament name to confirm")
+    .fill("Wrong name");
+  await expect(
+    page.getByRole("button", { name: "Delete permanently", exact: true }),
+  ).toBeDisabled();
+  await page.getByRole("button", { name: "Cancel deletion" }).click();
+  await page
+    .getByRole("button", { name: "Delete tournament…", exact: true })
+    .click();
+  await page
+    .getByLabel("Type the tournament name to confirm")
+    .fill("Autumn Open");
+  await page
+    .getByRole("button", { name: "Delete permanently", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByLabel("Tournament archive view").selectOption("active");
+  await expect(page.getByRole("button", { name: /Autumn Open/ })).toHaveCount(
+    0,
+  );
+  await page.reload();
+  await page.getByLabel("Tournament archive view").selectOption("archived");
+  await expect(page.getByRole("button", { name: /Autumn Open/ })).toHaveCount(
+    0,
+  );
+});

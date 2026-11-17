@@ -1892,3 +1892,14 @@ td {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+.management-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.management-divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 25px 0;
+}
