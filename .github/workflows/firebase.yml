@@ -106,7 +106,7 @@ jobs:
         continue-on-error: true
         run: npx firebase functions:artifacts:setpolicy --project jhematournamentapp --location asia-southeast1 --days 7 --non-interactive
       - name: Deploy tested app
-        run: npx firebase deploy --project jhematournamentapp --only hosting,firestore:rules,firestore:indexes,functions:adminLogin,functions:mutateTournament,storage --non-interactive --force
+        run: npx firebase deploy --project jhematournamentapp --only hosting,firestore:rules,firestore:indexes,functions:adminLogin,functions:mutateTournament,functions:mutateFencer,storage --non-interactive --force
       - name: Report artifact retention follow-up
         if: steps.artifact_retention.outcome == 'failure'
         run: echo 'Build-image retention could not be configured by the deployer. Inspect the retention step for the specific permission or configuration issue; application deployment remains independently verified below.' >> "$GITHUB_STEP_SUMMARY"

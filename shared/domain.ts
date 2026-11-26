@@ -54,6 +54,18 @@ export type Tournament = {
   archivedAt?: number | null;
 };
 const text = z.string().trim().min(1).max(60);
+export const profileMutationSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("create"), name: text }).strict(),
+  z
+    .object({
+      type: z.literal("rename"),
+      id: z.string().uuid(),
+      name: text,
+      expectedName: text,
+    })
+    .strict(),
+]);
+export type ProfileMutation = z.infer<typeof profileMutationSchema>;
 export const createSchema = z
   .object({
     name: text,

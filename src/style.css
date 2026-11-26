@@ -1937,3 +1937,127 @@ td {
 .preparation .field {
   margin: 0 0 0.5rem;
 }
+
+.admin-workspace {
+  padding-block: 2.5rem;
+}
+.admin-heading h1 {
+  margin-bottom: 0.5rem;
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+.admin-heading p {
+  margin-bottom: 0;
+}
+.admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.admin-search {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding-inline: 0.9rem;
+  flex: 1 1 16rem;
+  max-width: 32rem;
+  min-width: 0;
+}
+.admin-search input {
+  border: 0;
+  background: transparent;
+  width: 100%;
+  min-width: 0;
+  padding-block: 0.85rem;
+}
+.admin-event-list {
+  display: grid;
+  gap: 1rem;
+}
+.admin-event {
+  padding: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+.admin-event-details {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+.admin-event h2 {
+  margin-block: 0.5rem 0.75rem;
+  overflow-wrap: anywhere;
+}
+.admin-event .card-meta {
+  flex-wrap: wrap;
+}
+.admin-event p {
+  margin-block: 0.75rem 0;
+}
+.admin-stage {
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.admin-event-action {
+  display: grid;
+  gap: 1rem;
+  flex: 0 1 16rem;
+}
+.admin-event progress {
+  display: block;
+  margin-top: 0.5rem;
+  height: 0.4rem;
+  width: 100%;
+  accent-color: var(--accent);
+}
+.profile-editor {
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.profile-editor .field {
+  max-width: 32rem;
+}
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.fencer-row {
+  padding: 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.fencer-row + .fencer-row {
+  border-top: 1px solid var(--border);
+}
+.fencer-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.fencer-row small {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+}
+@media (max-width: 600px) {
+  .admin-workspace {
+    padding-block: 1.5rem;
+  }
+  .admin-heading {
+    align-items: flex-start;
+  }
+  .admin-event-action {
+    flex-grow: 1;
+  }
+}

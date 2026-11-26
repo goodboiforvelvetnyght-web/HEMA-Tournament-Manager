@@ -43,6 +43,7 @@ import {
   type Tournament,
   type Command,
 } from "../shared/domain";
+import { AdminDashboard, Fencers } from "./Admin";
 import { practice, useTournaments } from "./data";
 const poolName = (n: number) => String.fromCharCode(65 + n);
 const poolLabel = (n: number) =>
@@ -224,10 +225,22 @@ export default function App() {
           </span>
         </a>
         <nav>
-          <button className={!t ? "nav-active" : ""} onClick={() => select("")}>
+          <button
+            className={selected !== "fencers" ? "nav-active" : ""}
+            onClick={() => select("")}
+          >
             Tournaments
           </button>
-          <span className="nav-note">THE ART OF THE BOUT</span>
+          {store.admin ? (
+            <button
+              className={selected === "fencers" ? "nav-active" : ""}
+              onClick={() => select("fencers")}
+            >
+              Fencers
+            </button>
+          ) : (
+            <span className="nav-note">THE ART OF THE BOUT</span>
+          )}
         </nav>
         <span className="header-mode">
           <span className="connection-dot" />
@@ -243,181 +256,207 @@ export default function App() {
         </div>
       )}
       <main>
-        {!t ? (
-          <>
-            <section className="landing-hero">
-              <div>
-                <span className="eyebrow">
-                  HISTORICAL FENCING. MODERN COMPETITION.
-                </span>
-                <h1>
-                  Every exchange.
-                  <br />
-                  <em>Every victory.</em>
-                </h1>
-                <p>
-                  A clear view of the competition, from the first pool bout
-                  <br className="desktop" /> to the final salute.
-                </p>
-                <div className="hero-actions">
-                  {store.admin ? (
-                    <button
-                      className="primary"
-                      onClick={() => setCreateOpen(true)}
-                    >
-                      <Plus size={18} />
-                      Create tournament
-                    </button>
-                  ) : (
-                    <a
-                      className="primary"
-                      href="#tournaments"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        document
-                          .getElementById("tournaments")
-                          ?.scrollIntoView({ behavior: "smooth" });
-                      }}
-                    >
-                      Explore tournaments <ArrowRight size={17} />
-                    </a>
-                  )}
-                  <span className="live-caption">
-                    <span className="connection-dot" />
-                    Scores update live
-                  </span>
-                </div>
-              </div>
-              <div className="hero-art" aria-hidden="true">
-                <div className="art-ring outer" />
-                <div className="art-ring inner" />
-                <span className="art-top">PRECISION / RESPECT / RESOLVE</span>
-                <Swords strokeWidth={0.7} />
-                <span className="art-bottom">MEET ON THE FIELD.</span>
-                <span className="art-star">✦</span>
-              </div>
-            </section>
-            <section id="tournaments" className="tournament-list">
-              <div className="section-heading">
+        {store.admin && selected === "fencers" ? (
+          <Fencers
+            profiles={store.profiles}
+            loading={store.profilesLoading}
+            error={store.profileError}
+            save={store.mutateProfile}
+          />
+        ) : !t ? (
+          store.admin ? (
+            <AdminDashboard
+              tournaments={store.tournaments}
+              loading={store.loading || store.draftsLoading}
+              error={store.error}
+              onCreate={() => setCreateOpen(true)}
+              onOpen={(id, nextTab) => {
+                select(id);
+                setTab(nextTab);
+              }}
+            />
+          ) : (
+            <>
+              <section className="landing-hero">
                 <div>
-                  <span className="eyebrow">ON THE FIELD</span>
-                  <h2>
-                    Tournaments{" "}
-                    <span className="count">{visibleTournaments.length}</span>
-                  </h2>
-                </div>
-                <select
-                  aria-label="Tournament archive view"
-                  value={listView}
-                  onChange={(e) => setListView(e.target.value)}
-                >
-                  <option value="active">Active tournaments</option>
-                  <option value="archived">Archived tournaments</option>
-                </select>
-              </div>
-              {store.error && (
-                <Message>
-                  {store.error} <a href="?practice=1">Explore practice mode</a>
-                </Message>
-              )}
-              {store.loading ? (
-                <div className="empty">
-                  <div className="spinner" />
-                  Connecting to the scoreboard…
-                </div>
-              ) : visibleTournaments.length ? (
-                <div className="tournament-grid">
-                  {visibleTournaments.map((item) => (
-                    <button
-                      className="tournament-card"
-                      key={item.id}
-                      onClick={() => select(item.id)}
-                    >
-                      <div className="card-top">
-                        <span className="weapon">
-                          <Swords size={15} />
-                          {item.weapon}
-                        </span>
-                        <ArrowUpRight size={19} />
-                      </div>
-                      <h3>{item.name}</h3>
-                      <div className="card-meta">
-                        <span>
-                          <CalendarDays size={15} />
-                          {new Date(item.date + "T12:00:00").toLocaleDateString(
-                            undefined,
-                            { month: "short", day: "numeric", year: "numeric" },
-                          )}
-                        </span>
-                        <span>
-                          <Users size={15} />
-                          {item.participants.length} fencers
-                        </span>
-                      </div>
-                      <div className="card-progress">
-                        <div
-                          style={{
-                            width: `${(100 * item.matches.filter((m) => m.status === "finished" || m.status === "bye").length) / item.matches.length}%`,
-                          }}
-                        />
-                      </div>
-                      <div className="card-bottom">
-                        <span>{tournamentStatus(item)}</span>
-                        <span>
-                          {
-                            item.matches.filter((m) => m.status === "finished")
-                              .length
-                          }{" "}
-                          bouts completed <ChevronRight size={14} />
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                !store.error && (
-                  <div className="empty">
-                    <Swords size={35} />
-                    <h3>
-                      {listView === "archived"
-                        ? "No archived tournaments."
-                        : "The field is yours."}
-                    </h3>
-                    <p>
-                      The first tournament will appear here when an admin
-                      creates it.
-                    </p>
+                  <span className="eyebrow">
+                    HISTORICAL FENCING. MODERN COMPETITION.
+                  </span>
+                  <h1>
+                    Every exchange.
+                    <br />
+                    <em>Every victory.</em>
+                  </h1>
+                  <p>
+                    A clear view of the competition, from the first pool bout
+                    <br className="desktop" /> to the final salute.
+                  </p>
+                  <div className="hero-actions">
                     {store.admin ? (
                       <button
                         className="primary"
                         onClick={() => setCreateOpen(true)}
                       >
-                        Create tournament <Plus size={16} />
+                        <Plus size={18} />
+                        Create tournament
                       </button>
                     ) : (
-                      <a className="text-link" href="?practice=1">
-                        Explore a practice tournament <ArrowUpRight size={15} />
+                      <a
+                        className="primary"
+                        href="#tournaments"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          document
+                            .getElementById("tournaments")
+                            ?.scrollIntoView({ behavior: "smooth" });
+                        }}
+                      >
+                        Explore tournaments <ArrowRight size={17} />
                       </a>
                     )}
+                    <span className="live-caption">
+                      <span className="connection-dot" />
+                      Scores update live
+                    </span>
                   </div>
-                )
-              )}
-            </section>
-            <div className="principles">
-              <span>
-                <Swords size={20} />
-                From pools to the podium
-              </span>
-              <span>
-                <Clock3 size={20} />
-                Follow every exchange
-              </span>
-              <span>
-                <Trophy size={20} />
-                Let the fencing decide
-              </span>
-            </div>
-          </>
+                </div>
+                <div className="hero-art" aria-hidden="true">
+                  <div className="art-ring outer" />
+                  <div className="art-ring inner" />
+                  <span className="art-top">PRECISION / RESPECT / RESOLVE</span>
+                  <Swords strokeWidth={0.7} />
+                  <span className="art-bottom">MEET ON THE FIELD.</span>
+                  <span className="art-star">✦</span>
+                </div>
+              </section>
+              <section id="tournaments" className="tournament-list">
+                <div className="section-heading">
+                  <div>
+                    <span className="eyebrow">ON THE FIELD</span>
+                    <h2>
+                      Tournaments{" "}
+                      <span className="count">{visibleTournaments.length}</span>
+                    </h2>
+                  </div>
+                  <select
+                    aria-label="Tournament archive view"
+                    value={listView}
+                    onChange={(e) => setListView(e.target.value)}
+                  >
+                    <option value="active">Active tournaments</option>
+                    <option value="archived">Archived tournaments</option>
+                  </select>
+                </div>
+                {store.error && (
+                  <Message>
+                    {store.error}{" "}
+                    <a href="?practice=1">Explore practice mode</a>
+                  </Message>
+                )}
+                {store.loading ? (
+                  <div className="empty">
+                    <div className="spinner" />
+                    Connecting to the scoreboard…
+                  </div>
+                ) : visibleTournaments.length ? (
+                  <div className="tournament-grid">
+                    {visibleTournaments.map((item) => (
+                      <button
+                        className="tournament-card"
+                        key={item.id}
+                        onClick={() => select(item.id)}
+                      >
+                        <div className="card-top">
+                          <span className="weapon">
+                            <Swords size={15} />
+                            {item.weapon}
+                          </span>
+                          <ArrowUpRight size={19} />
+                        </div>
+                        <h3>{item.name}</h3>
+                        <div className="card-meta">
+                          <span>
+                            <CalendarDays size={15} />
+                            {new Date(
+                              item.date + "T12:00:00",
+                            ).toLocaleDateString(undefined, {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
+                          </span>
+                          <span>
+                            <Users size={15} />
+                            {item.participants.length} fencers
+                          </span>
+                        </div>
+                        <div className="card-progress">
+                          <div
+                            style={{
+                              width: `${(100 * item.matches.filter((m) => m.status === "finished" || m.status === "bye").length) / item.matches.length}%`,
+                            }}
+                          />
+                        </div>
+                        <div className="card-bottom">
+                          <span>{tournamentStatus(item)}</span>
+                          <span>
+                            {
+                              item.matches.filter(
+                                (m) => m.status === "finished",
+                              ).length
+                            }{" "}
+                            bouts completed <ChevronRight size={14} />
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  !store.error && (
+                    <div className="empty">
+                      <Swords size={35} />
+                      <h3>
+                        {listView === "archived"
+                          ? "No archived tournaments."
+                          : "The field is yours."}
+                      </h3>
+                      <p>
+                        The first tournament will appear here when an admin
+                        creates it.
+                      </p>
+                      {store.admin ? (
+                        <button
+                          className="primary"
+                          onClick={() => setCreateOpen(true)}
+                        >
+                          Create tournament <Plus size={16} />
+                        </button>
+                      ) : (
+                        <a className="text-link" href="?practice=1">
+                          Explore a practice tournament{" "}
+                          <ArrowUpRight size={15} />
+                        </a>
+                      )}
+                    </div>
+                  )
+                )}
+              </section>
+              <div className="principles">
+                <span>
+                  <Swords size={20} />
+                  From pools to the podium
+                </span>
+                <span>
+                  <Clock3 size={20} />
+                  Follow every exchange
+                </span>
+                <span>
+                  <Trophy size={20} />
+                  Let the fencing decide
+                </span>
+              </div>
+            </>
+          )
         ) : (
           <>
             <button className="breadcrumb" onClick={() => select("")}>

@@ -57,6 +57,13 @@ test("public views and practice tournament through a bye to the final", async ({
   ])
     await page.getByLabel("Pool for " + name).selectOption(pool);
   await page.getByRole("button", { name: "Save pools" }).click();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Tournaments", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Review pools for First Build Cup" })
+    .click();
   await expect(page.getByText("Ada, Bo")).toBeVisible();
   await expect(page.getByText(/scheduled pool bouts/)).toHaveCount(0);
   await page
@@ -66,7 +73,13 @@ test("public views and practice tournament through a bye to the final", async ({
   await page
     .getByRole("button", { name: "Regenerate schedule", exact: true })
     .click();
-  await page.getByRole("tab", { name: "Matches", exact: true }).click();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Tournaments", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Open matches for First Build Cup" })
+    .click();
   for (let i = 0; i < 2; i++) {
     await page.locator(".match-row").nth(i).click();
     await page
@@ -301,4 +314,104 @@ test("admin archives, restores and confirms permanent deletion", async ({
   await expect(page.getByRole("button", { name: /Autumn Open/ })).toHaveCount(
     0,
   );
+});
+
+test("admin directory keeps event names while future entries use profile corrections", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/?practice=1");
+  await expect(
+    page.getByRole("button", { name: "Fencers", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Admin login", exact: true }).click();
+  await page.getByRole("button", { name: "Enter practice desk" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Tournaments", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Fencers", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Create fencer", exact: true })
+    .click();
+  await page.getByLabel("Profile name").fill("Robin");
+  await page.getByRole("button", { name: "Save profile" }).click();
+  await expect(page.getByRole("status")).toHaveText("Fencer profile created.");
+  await page.getByLabel("Search fencers").fill("nobody");
+  await expect(
+    page.getByRole("heading", { name: "No fencers match your search." }),
+  ).toBeVisible();
+  await page.getByLabel("Search fencers").fill("robin");
+  await expect(
+    page.getByRole("button", { name: /Edit profile for Robin/ }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: "test-results/" + testInfo.project.name + "-fencers.png",
+    fullPage: true,
+  });
+
+  async function draft(name: string) {
+    await page
+      .getByRole("navigation")
+      .getByRole("button", { name: "Tournaments", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Create tournament", exact: true })
+      .click();
+    await page.getByLabel("Tournament name").fill(name);
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await page
+      .getByLabel("Existing fencer profile")
+      .selectOption({ label: name === "First Cup" ? "Robin" : "Robin Jones" });
+    await page.getByRole("button", { name: "Add existing fencer" }).click();
+  }
+  await draft("First Cup");
+  await expect(
+    page.getByRole("button", { name: "Correct name for Robin", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Fencers", exact: true }).click();
+  await page.getByRole("button", { name: /Edit profile for Robin/ }).click();
+  await page.getByLabel("Profile name").fill("Robin Jones");
+  await page.getByRole("button", { name: "Save profile" }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Profile name saved." }),
+  ).toHaveText("Profile name saved.");
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Tournaments", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Continue preparation for First Cup" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Correct name for Robin", exact: true }),
+  ).toBeVisible();
+  await draft("Second Cup");
+  await expect(
+    page.getByRole("button", {
+      name: "Correct name for Robin Jones",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "Tournaments", exact: true })
+    .click();
+  await page.screenshot({
+    path: "test-results/" + testInfo.project.name + "-admin-dashboard.png",
+    fullPage: true,
+  });
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Fencers", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Admin login", exact: true }).click();
+  await page.getByRole("button", { name: "Enter practice desk" }).click();
+  await page.getByRole("button", { name: "Fencers", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: /Edit profile for Robin Jones/ }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
 });

@@ -16,3 +16,15 @@ assert.equal(result.error.status, "PERMISSION_DENIED");
 console.log(
   "Hosting serves En Garde and unauthenticated tournament changes are rejected.",
 );
+
+const profileResponse = await fetch(
+  "https://asia-southeast1-jhematournamentapp.cloudfunctions.net/mutateFencer",
+  {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ data: {} }),
+  },
+);
+assert.equal(profileResponse.status, 403);
+assert.equal((await profileResponse.json()).error.status, "PERMISSION_DENIED");
+console.log("Unauthenticated fencer profile changes are rejected.");

@@ -15,6 +15,8 @@ import {
   createTournament,
   createDraft,
   profileEntrySchema,
+  profileMutationSchema,
+  type ProfileMutation,
   type FencerProfile,
   type Tournament,
 } from "../shared/domain";
@@ -81,6 +83,10 @@ function initial(): Tournament[] {
 }
 const profilesKey = "engarde-practice-profiles-v1";
 export function useTournaments() {
+  const [profilesLoading, setProfilesLoading] = useState(!practice);
+  const [draftsLoading, setDraftsLoading] = useState(!practice);
+  const [profileError, setProfileError] = useState("");
+  const [draftError, setDraftError] = useState("");
   const [drafts, setDrafts] = useState<Tournament[]>([]);
   const [profiles, setProfiles] = useState<FencerProfile[]>(() => {
     if (!practice) return [];
@@ -131,17 +137,31 @@ export function useTournaments() {
       setProfiles([]);
       return;
     }
+    setProfilesLoading(true);
+    setDraftsLoading(true);
     const stopDrafts = onSnapshot(
       collection(db, "tournamentDrafts"),
-      (snapshot) =>
-        setDrafts(snapshot.docs.map((doc) => doc.data() as Tournament)),
-      () => setError("Unable to load tournament drafts."),
+      (snapshot) => {
+        setDrafts(snapshot.docs.map((doc) => doc.data() as Tournament));
+        setDraftsLoading(false);
+        setDraftError("");
+      },
+      () => {
+        setDraftsLoading(false);
+        setDraftError("Unable to load tournament drafts.");
+      },
     );
     const stopProfiles = onSnapshot(
       collection(db, "fencerProfiles"),
-      (snapshot) =>
-        setProfiles(snapshot.docs.map((doc) => doc.data() as FencerProfile)),
-      () => setError("Unable to load fencer profiles."),
+      (snapshot) => {
+        setProfiles(snapshot.docs.map((doc) => doc.data() as FencerProfile));
+        setProfilesLoading(false);
+        setProfileError("");
+      },
+      () => {
+        setProfilesLoading(false);
+        setProfileError("Unable to load fencer profiles.");
+      },
     );
     return () => {
       stopDrafts();
@@ -224,6 +244,38 @@ export function useTournaments() {
       });
     return id;
   }
+  async function mutateProfile(command: ProfileMutation) {
+    if (!admin) throw new Error("Admin access required.");
+    const parsed = profileMutationSchema.parse(command);
+    if (!practice) {
+      const response = await httpsCallable<
+        { requestId: string; command: ProfileMutation },
+        { id: string }
+      >(
+        functions,
+        "mutateFencer",
+      )({ requestId: crypto.randomUUID(), command: parsed });
+      return response.data.id;
+    }
+    const id = parsed.type === "create" ? crypto.randomUUID() : parsed.id;
+    if (parsed.type === "rename") {
+      const prior = profiles.find((profile) => profile.id === id);
+      if (!prior) throw new Error("Fencer profile not found.");
+      if (prior.name !== parsed.expectedName)
+        throw new Error(
+          "Another admin edited this profile. Review the latest name and try again.",
+        );
+    }
+    const next =
+      parsed.type === "create"
+        ? [...profiles, { id, name: parsed.name }]
+        : profiles.map((profile) =>
+            profile.id === id ? { ...profile, name: parsed.name } : profile,
+          );
+    localStorage.setItem(profilesKey, JSON.stringify(next));
+    setProfiles(next);
+    return id;
+  }
   const visible = admin
     ? [
         ...tournaments,
@@ -237,9 +289,13 @@ export function useTournaments() {
     profiles,
     admin,
     loading,
-    error,
+    error: error || draftError,
+    profileError,
+    profilesLoading,
+    draftsLoading,
     login,
     logout,
     mutate,
+    mutateProfile,
   };
 }

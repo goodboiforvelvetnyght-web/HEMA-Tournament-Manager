@@ -77,3 +77,5 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for the Google connection and GitHub Actions 
 ## Archive and delete
 
 Admins can open a tournament and choose **Manage tournament** to archive, restore, or delete it. Archived tournaments appear in the Archived tournaments view and retain publicly readable results. Archiving pauses running timers and blocks scoring or bracket changes until restored. Permanent deletion requires typing the exact tournament name; export a backup first if needed. Server-side admin, version, and idempotency checks protect these actions. Deletion removes the tournament document and its embedded participants and results; private request receipts and login security metadata are retained.
+
+Admins have a tournament dashboard with search, archived events, bout progress, and stage-specific actions. The Fencers page creates name-only permanent profiles and edits profile names. Profile edits supply names for future entries. Use tournament Preparation to correct an existing event name. Profile IDs distinguish fencers with identical names. Profile mutations require admin authentication and reject stale edits.

@@ -12,6 +12,7 @@ import {
   createTournament,
   createDraft,
   profileEntrySchema,
+  profileMutationSchema,
   type FencerProfile,
   type Tournament,
 } from "../../shared/domain.js";
@@ -187,6 +188,69 @@ export const mutateTournament = onCall(options, async (request) => {
     throw new HttpsError(
       "failed-precondition",
       error instanceof Error ? error.message : "Unable to update tournament.",
+    );
+  }
+});
+
+// Profiles are edited independently so existing event names retain their snapshots.
+export const mutateFencer = onCall(options, async (request) => {
+  if (request.auth?.token.admin !== true)
+    throw new HttpsError("permission-denied", "Admin access required.");
+  try {
+    const data = z
+      .object({
+        requestId: z.string().uuid(),
+        command: profileMutationSchema,
+      })
+      .strict()
+      .parse(request.data);
+    const command = data.command;
+    const id = command.type === "create" ? data.requestId : command.id;
+    const ref = db.collection("fencerProfiles").doc(id);
+    const receipt = db.collection("mutationReceipts").doc(data.requestId);
+    const fingerprint = createHash("sha256")
+      .update(JSON.stringify({ operation: "fencer", ...data }))
+      .digest("hex");
+    await db.runTransaction(async (tx) => {
+      const [prior, profile] = await tx.getAll(receipt, ref);
+      if (prior.exists) {
+        if (prior.data()!.fingerprint !== fingerprint)
+          throw new HttpsError(
+            "invalid-argument",
+            "Request identifier was already used.",
+          );
+        return;
+      }
+      if (command.type === "create") {
+        if (profile.exists)
+          throw new HttpsError(
+            "already-exists",
+            "This profile already exists.",
+          );
+        tx.create(ref, { id, name: command.name });
+      } else {
+        if (!profile.exists)
+          throw new HttpsError("not-found", "Fencer profile not found.");
+        if (profile.data()!.name !== command.expectedName)
+          throw new HttpsError(
+            "aborted",
+            "Another admin edited this profile. Review the latest name and try again.",
+          );
+        tx.update(ref, { name: command.name });
+      }
+      tx.set(receipt, { fingerprint, at: Date.now() });
+    });
+    return { id };
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    if (error instanceof z.ZodError)
+      throw new HttpsError(
+        "invalid-argument",
+        "Enter a name between 1 and 60 characters.",
+      );
+    throw new HttpsError(
+      "internal",
+      "Unable to save fencer profile. Please try again.",
     );
   }
 });

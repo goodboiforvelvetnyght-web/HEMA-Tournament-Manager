@@ -106,6 +106,70 @@ try {
     }),
   );
   await check(
+    "fencer directory requires admin and handles retries and concurrent edits",
+    async () => {
+      const change = httpsCallable(funcs, "mutateFencer");
+      await assert.rejects(
+        httpsCallable(publicFuncs, "mutateFencer")({}),
+        /Admin access/,
+      );
+      const requestId = randomUUID();
+      const creation = {
+        requestId,
+        command: { type: "create", name: "Directory Fencer" },
+      };
+      assert.equal((await change(creation)).data.id, requestId);
+      await change(creation);
+      const profileRef = doc(adminDb, "fencerProfiles", requestId);
+      assert.equal((await getDoc(profileRef)).data().name, "Directory Fencer");
+      await assert.rejects(getDoc(doc(db, "fencerProfiles", requestId)), {
+        code: "permission-denied",
+      });
+      await assert.rejects(setDoc(profileRef, { name: "Direct edit" }), {
+        code: "permission-denied",
+      });
+      await assert.rejects(
+        change({ ...creation, command: { type: "create", name: "Changed" } }),
+        /already used/,
+      );
+      await assert.rejects(
+        change({
+          requestId: randomUUID(),
+          command: { type: "create", name: " " },
+        }),
+        /between 1 and 60/,
+      );
+      const rename = {
+        requestId: randomUUID(),
+        command: {
+          type: "rename",
+          id: requestId,
+          expectedName: "Directory Fencer",
+          name: "Corrected Fencer",
+        },
+      };
+      await change(rename);
+      await change(rename);
+      await assert.rejects(
+        change({
+          ...rename,
+          requestId: randomUUID(),
+          command: { ...rename.command, name: "Stale edit" },
+        }),
+        /Another admin/,
+      );
+      await assert.rejects(
+        change({
+          ...rename,
+          requestId: randomUUID(),
+          command: { ...rename.command, id: randomUUID() },
+        }),
+        /not found/,
+      );
+      assert.equal((await getDoc(profileRef)).data().name, "Corrected Fencer");
+    },
+  );
+  await check(
     "private draft, persistent profiles, explicit scheduling and scoring lock",
     async () => {
       const draftId = randomUUID();
@@ -199,6 +263,21 @@ try {
       assert.equal(corrected.participants[0].name, "Alex Jones");
       assert.equal(corrected.matches[0].result, "draw");
       assert.equal(corrected.matches[0].a, bout.a);
+      await httpsCallable(
+        funcs,
+        "mutateFencer",
+      )({
+        requestId: randomUUID(),
+        command: {
+          type: "rename",
+          id: firstProfile,
+          expectedName: "Alex",
+          name: "Alex Carter",
+        },
+      });
+      const afterProfileEdit = (await getDoc(publishedRef)).data();
+      assert.equal(afterProfileEdit.participants[0].name, "Alex Jones");
+      assert.deepEqual(afterProfileEdit.matches, corrected.matches);
       await send(-1, details, randomUUID(), secondId);
       await send(
         0,
@@ -209,7 +288,7 @@ try {
       const other = (
         await getDoc(doc(adminDb, "tournamentDrafts", secondId))
       ).data();
-      assert.equal(other.participants[0].name, "Alex");
+      assert.equal(other.participants[0].name, "Alex Carter");
       assert.equal(other.participants[0].profileId, firstProfile);
       assert.notEqual(other.participants[0].id, alex.id);
     },
