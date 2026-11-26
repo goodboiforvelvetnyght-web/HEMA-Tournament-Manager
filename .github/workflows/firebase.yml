@@ -42,10 +42,15 @@ jobs:
           npm run build:backend
           npm test
           bash -n scripts/setup-github-deploy.sh
-      - name: Install browser
+      - name: Select Chromium browser
         run: |
-          npx playwright install --with-deps chromium
-          node --input-type=module -e "import { chromium } from '@playwright/test'; console.log('CHROMIUM_PATH='+chromium.executablePath())" >> "$GITHUB_ENV"
+          if browser="$(command -v google-chrome)"; then
+            "$browser" --version
+            echo "CHROMIUM_PATH=$browser" >> "$GITHUB_ENV"
+          else
+            npx playwright install --with-deps chromium
+            node --input-type=module -e "import { chromium } from '@playwright/test'; console.log('CHROMIUM_PATH='+chromium.executablePath())" >> "$GITHUB_ENV"
+          fi
       - name: Test desktop and mobile workflows
         run: npm run test:e2e
       - name: Test Firebase authorization, transactions, and connected scoring
