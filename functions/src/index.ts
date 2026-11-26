@@ -10,6 +10,9 @@ import {
   deleteSchema,
   applyCommand,
   createTournament,
+  createDraft,
+  profileEntrySchema,
+  type FencerProfile,
   type Tournament,
 } from "../../shared/domain.js";
 initializeApp();
@@ -78,6 +81,7 @@ export const mutateTournament = onCall(options, async (request) => {
   try {
     const data = mutateSchema.parse(request.data);
     const ref = db.collection("tournaments").doc(data.tournamentId);
+    const draft = db.collection("tournamentDrafts").doc(data.tournamentId);
     const receipt = db.collection("mutationReceipts").doc(data.requestId);
     const fingerprint = createHash("sha256")
       .update(JSON.stringify(data))
@@ -92,7 +96,9 @@ export const mutateTournament = onCall(options, async (request) => {
           );
         return;
       }
-      const snapshot = await tx.get(ref);
+      const [published, pending] = await tx.getAll(ref, draft);
+      const snapshot = published.exists ? published : pending;
+      let target = snapshot.exists ? snapshot.ref : draft;
       const now = Date.now();
       let tournament: Tournament;
       if (data.expectedVersion === -1) {
@@ -101,7 +107,16 @@ export const mutateTournament = onCall(options, async (request) => {
             "already-exists",
             "This tournament already exists.",
           );
-        tournament = createTournament(data.command, data.tournamentId, now);
+        if (
+          data.command &&
+          typeof data.command === "object" &&
+          "participants" in data.command
+        ) {
+          tournament = createTournament(data.command, data.tournamentId, now);
+          target = ref;
+        } else {
+          tournament = createDraft(data.command, data.tournamentId, now);
+        }
       } else {
         if (!snapshot.exists)
           throw new HttpsError("not-found", "Tournament not found.");
@@ -118,7 +133,7 @@ export const mutateTournament = onCall(options, async (request) => {
               "invalid-argument",
               "Type the tournament name to confirm deletion.",
             );
-          tx.delete(ref);
+          tx.delete(target);
           tx.set(receipt, {
             tournamentId: data.tournamentId,
             fingerprint,
@@ -126,14 +141,35 @@ export const mutateTournament = onCall(options, async (request) => {
           });
           return;
         }
-        tournament = applyCommand(old, data.command, now);
+        let profile: FencerProfile | undefined;
+        if ((data.command as { type?: string })?.type === "addEntry") {
+          const entry = profileEntrySchema.parse(data.command);
+          const profiles = db.collection("fencerProfiles");
+          if ("id" in entry.profile) {
+            profile = (await tx.get(profiles.doc(entry.profile.id))).data() as
+              FencerProfile | undefined;
+          } else {
+            profile = { id: data.requestId, name: entry.profile.name };
+            tx.create(profiles.doc(profile.id), profile);
+          }
+        }
+        tournament = applyCommand(
+          old,
+          data.command,
+          now,
+          profile && { id: data.requestId, profile },
+        );
+        if (pending.exists && tournament.matches.length) {
+          tx.delete(draft);
+          target = ref;
+        }
       }
       if (Buffer.byteLength(JSON.stringify(tournament)) > 900000)
         throw new HttpsError(
           "resource-exhausted",
           "Tournament storage limit reached. Export a backup and contact the administrator.",
         );
-      tx.set(ref, tournament);
+      tx.set(target, tournament);
       tx.set(receipt, {
         tournamentId: data.tournamentId,
         fingerprint,

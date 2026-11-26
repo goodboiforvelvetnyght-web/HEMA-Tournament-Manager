@@ -37,13 +37,35 @@ test("public views and practice tournament through a bye to the final", async ({
     .getByRole("button", { name: "Create tournament", exact: true })
     .click();
   await page.getByLabel("Tournament name").fill("First Build Cup");
-  await page.getByLabel("Participants").fill("Ada\nBo\nCy\nDee");
-  await page.getByRole("button", { name: "Arrange pools" }).click();
-  await page.getByLabel("Number of pools").selectOption("2");
+  await page.getByRole("button", { name: "Save draft" }).click();
   await expect(
-    page.getByText("4 fencers · 2 pools · 2 round-robin bouts"),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Create & generate matches" }).click();
+    page.getByRole("button", { name: "Generate schedule", exact: true }),
+  ).toBeDisabled();
+  for (const name of ["Ada", "Bo", "Cy", "Dee"]) {
+    await page.getByLabel("New fencer name").fill(name);
+    await page.getByRole("button", { name: "Create profile and add" }).click();
+    await expect(
+      page.getByRole("button", { name: "Correct name for " + name }),
+    ).toBeVisible();
+  }
+  await page.getByLabel("Number of pools").selectOption("2");
+  for (const [name, pool] of [
+    ["Ada", "0"],
+    ["Bo", "0"],
+    ["Cy", "1"],
+    ["Dee", "1"],
+  ])
+    await page.getByLabel("Pool for " + name).selectOption(pool);
+  await page.getByRole("button", { name: "Save pools" }).click();
+  await expect(page.getByText("Ada, Bo")).toBeVisible();
+  await expect(page.getByText(/scheduled pool bouts/)).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Generate schedule", exact: true })
+    .click();
+  await expect(page.getByText("2 scheduled pool bouts")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Regenerate schedule", exact: true })
+    .click();
   await page.getByRole("tab", { name: "Matches", exact: true }).click();
   for (let i = 0; i < 2; i++) {
     await page.locator(".match-row").nth(i).click();
@@ -100,6 +122,17 @@ test("public views and practice tournament through a bye to the final", async ({
     await expect(page.locator(".result-banner")).toContainText("wins");
     await page.getByRole("button", { name: "Close dialog" }).click();
   }
+  await page.getByRole("tab", { name: "Preparation" }).click();
+  await expect(page.getByText(/Pool membership is locked/)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Regenerate schedule/ }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Correct name for Dee" }).click();
+  await page.getByLabel("Event name").fill("Dee Smith");
+  await page.getByRole("button", { name: "Save name" }).click();
+  await expect(
+    page.getByRole("button", { name: "Correct name for Dee Smith" }),
+  ).toBeVisible();
   await page.getByRole("tab", { name: "Bracket", exact: true }).click();
   for (const name of ["Ada", "Bo", "Cy"])
     await page
@@ -155,7 +188,7 @@ test("public views and practice tournament through a bye to the final", async ({
   expect(errors).toEqual([]);
 });
 
-test("creation protects unfinished details and pool assignments from accidental dismissal", async ({
+test("creation protects unfinished draft details from accidental dismissal", async ({
   page,
 }) => {
   await page.goto("/?practice=1");
@@ -170,7 +203,7 @@ test("creation protects unfinished details and pool assignments from accidental 
     .getByRole("button", { name: "Create tournament", exact: true })
     .click();
   await page.getByLabel("Tournament name").fill("Keep these details");
-  await page.getByLabel("Participants").fill("Ada\nBo\nCy\nDee");
+  await page.getByLabel("Format").selectOption("pools-only");
   await page.mouse.click(1, 1);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toBeVisible();
@@ -187,15 +220,7 @@ test("creation protects unfinished details and pool assignments from accidental 
     page.getByRole("button", { name: "Keep editing" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Keep editing" }).click();
-  await expect(page.getByLabel("Participants")).toHaveValue("Ada\nBo\nCy\nDee");
-  await page.getByRole("button", { name: "Arrange pools" }).click();
-  await page.getByLabel("Number of pools").selectOption("2");
-  await page.mouse.click(1, 1);
-  await page.keyboard.press("Escape");
-  await expect(page.getByLabel("Number of pools")).toHaveValue("2");
-  await page.getByRole("button", { name: "Close dialog" }).click();
-  await page.getByRole("button", { name: "Close dialog" }).click();
-  await expect(page.getByLabel("Number of pools")).toHaveValue("2");
+  await expect(page.getByLabel("Format")).toHaveValue("pools-only");
   await page.getByRole("button", { name: "Close dialog" }).click();
   await page
     .getByRole("button", { name: "Discard tournament", exact: true })

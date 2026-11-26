@@ -13,6 +13,9 @@ import {
   deleteSchema,
   applyCommand,
   createTournament,
+  createDraft,
+  profileEntrySchema,
+  type FencerProfile,
   type Tournament,
 } from "../shared/domain";
 export const practice =
@@ -76,7 +79,17 @@ function initial(): Tournament[] {
     return [sample()];
   }
 }
+const profilesKey = "engarde-practice-profiles-v1";
 export function useTournaments() {
+  const [drafts, setDrafts] = useState<Tournament[]>([]);
+  const [profiles, setProfiles] = useState<FencerProfile[]>(() => {
+    if (!practice) return [];
+    try {
+      return JSON.parse(localStorage.getItem(profilesKey) || "[]");
+    } catch {
+      return [];
+    }
+  });
   const [tournaments, setTournaments] = useState<Tournament[]>(initial);
   const [admin, setAdmin] = useState(false);
   const [loading, setLoading] = useState(!practice);
@@ -111,6 +124,30 @@ export function useTournaments() {
       stopData();
     };
   }, []);
+  useEffect(() => {
+    if (practice) return;
+    if (!admin) {
+      setDrafts([]);
+      setProfiles([]);
+      return;
+    }
+    const stopDrafts = onSnapshot(
+      collection(db, "tournamentDrafts"),
+      (snapshot) =>
+        setDrafts(snapshot.docs.map((doc) => doc.data() as Tournament)),
+      () => setError("Unable to load tournament drafts."),
+    );
+    const stopProfiles = onSnapshot(
+      collection(db, "fencerProfiles"),
+      (snapshot) =>
+        setProfiles(snapshot.docs.map((doc) => doc.data() as FencerProfile)),
+      () => setError("Unable to load fencer profiles."),
+    );
+    return () => {
+      stopDrafts();
+      stopProfiles();
+    };
+  }, [admin]);
   useEffect(() => {
     if (practice) {
       try {
@@ -149,9 +186,31 @@ export function useTournaments() {
         setTournaments((old) => old.filter((item) => item.id !== id));
         return id;
       }
+      let profile: FencerProfile | undefined;
+      let created = false;
+      if ((command as { type?: string })?.type === "addEntry") {
+        const entry = profileEntrySchema.parse(command);
+        if ("id" in entry.profile) {
+          const existingId = entry.profile.id;
+          profile = profiles.find((item) => item.id === existingId);
+        } else {
+          profile = { id: crypto.randomUUID(), name: entry.profile.name };
+          created = true;
+        }
+      }
       const next = t
-        ? applyCommand(t, command, Date.now())
-        : createTournament(command, id, Date.now());
+        ? applyCommand(
+            t,
+            command,
+            Date.now(),
+            profile && { id: crypto.randomUUID(), profile },
+          )
+        : createDraft(command, id, Date.now());
+      if (created && profile) {
+        const nextProfiles = [...profiles, profile];
+        localStorage.setItem(profilesKey, JSON.stringify(nextProfiles));
+        setProfiles(nextProfiles);
+      }
       setTournaments((old) => [next, ...old.filter((item) => item.id !== id)]);
     } else
       await httpsCallable(
@@ -165,5 +224,22 @@ export function useTournaments() {
       });
     return id;
   }
-  return { tournaments, admin, loading, error, login, logout, mutate };
+  const visible = admin
+    ? [
+        ...tournaments,
+        ...drafts.filter(
+          (draft) => !tournaments.some((t) => t.id === draft.id),
+        ),
+      ].sort((a, b) => b.createdAt - a.createdAt)
+    : tournaments.filter((t) => !practice || t.matches.length > 0);
+  return {
+    tournaments: visible,
+    profiles,
+    admin,
+    loading,
+    error,
+    login,
+    logout,
+    mutate,
+  };
 }

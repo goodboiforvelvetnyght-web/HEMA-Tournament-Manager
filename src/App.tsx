@@ -30,6 +30,11 @@ import {
 } from "lucide-react";
 import {
   elapsed,
+  formats,
+  formatLabels,
+  UNASSIGNED,
+  poolMembershipLocked,
+  type FencerProfile,
   standings,
   suggestedSeeds,
   winner,
@@ -40,6 +45,8 @@ import {
 } from "../shared/domain";
 import { practice, useTournaments } from "./data";
 const poolName = (n: number) => String.fromCharCode(65 + n);
+const poolLabel = (n: number) =>
+  n === UNASSIGNED ? "Unassigned" : "Pool " + poolName(n);
 const nameOf = (t: Tournament, id: string | null) =>
   t.participants.find((p) => p.id === id)?.name || "Bye";
 const formatTime = (ms: number) =>
@@ -49,6 +56,12 @@ const formatTime = (ms: number) =>
     .toString()
     .padStart(2, "0")}`;
 function tournamentStatus(t: Tournament) {
+  if (!t.matches.length) return "Draft";
+  if (
+    t.format === "pools-only" &&
+    t.matches.every((m) => m.status === "finished")
+  )
+    return "Complete";
   const last = t.matches.filter(
     (m) => m.stage === "bracket" && m.round === t.bracketRound,
   );
@@ -160,7 +173,15 @@ export default function App() {
   function select(id: string) {
     location.hash = id;
     setSelected(id);
-    setTab("overview");
+    const tournament = store.tournaments.find((item) => item.id === id);
+    setTab(
+      store.admin &&
+        tournament &&
+        !tournament.archivedAt &&
+        !tournament.matches.length
+        ? "preparation"
+        : "overview",
+    );
     setError("");
   }
   async function execute(command: Command) {
@@ -419,6 +440,9 @@ export default function App() {
                     {t.participants.length} fencers
                   </span>
                   <span>{t.poolCount} pools</span>
+                  <span>
+                    {formatLabels[t.format ?? "pools-and-elimination"]}
+                  </span>
                 </div>
               </div>
               {store.admin && (
@@ -441,10 +465,15 @@ export default function App() {
             )}
             <div className="tabs" role="tablist" aria-label="Tournament views">
               {[
+                ...(store.admin && !t.archivedAt
+                  ? [{ id: "preparation", label: "Preparation", icon: Users }]
+                  : []),
                 { id: "overview", label: "Overview", icon: LayoutGrid },
                 { id: "matches", label: "Matches", icon: Swords },
                 { id: "standings", label: "Standings", icon: ListOrdered },
-                { id: "bracket", label: "Bracket", icon: GitBranch },
+                ...(t.format === "pools-only"
+                  ? []
+                  : [{ id: "bracket", label: "Bracket", icon: GitBranch }]),
               ].map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
@@ -463,7 +492,18 @@ export default function App() {
               </span>
             </div>
             {error && !match && <Message>{error}</Message>}
-            {tab === "overview" && (
+            {tab === "preparation" && store.admin && !t.archivedAt && (
+              <Preparation
+                key={t.id + ":" + t.version}
+                t={t}
+                profiles={store.profiles}
+                busy={busy}
+                run={run}
+                execute={execute}
+              />
+            )}
+            {(tab === "overview" ||
+              (tab === "preparation" && (!store.admin || t.archivedAt))) && (
               <Overview t={t} onMatch={setMatchId} onTab={setTab} />
             )}
             {tab === "matches" && (
@@ -476,7 +516,7 @@ export default function App() {
               />
             )}
             {tab === "standings" && <Standings t={t} />}
-            {tab === "bracket" && (
+            {tab === "bracket" && t.format !== "pools-only" && (
               <Bracket
                 t={t}
                 admin={store.admin && !t.archivedAt}
@@ -540,7 +580,8 @@ export default function App() {
             const id = await store.mutate(null, input);
             setCreateOpen(false);
             select(id);
-            setToast("Tournament created. The field is ready.");
+            setTab("preparation");
+            setToast("Tournament draft saved.");
           }}
         />
       )}
@@ -570,6 +611,13 @@ function Overview({
   onMatch: (id: string) => void;
   onTab: (tab: string) => void;
 }) {
+  if (!t.matches.length)
+    return (
+      <div className="empty compact">
+        <h3>Schedule pending</h3>
+        <p>Bouts will appear after the pool schedule is generated.</p>
+      </div>
+    );
   const complete = t.matches.filter(
     (m) => m.status === "finished" || m.status === "bye",
   ).length;
@@ -636,14 +684,21 @@ function Overview({
             <div className="empty compact">
               <CheckCircle2 />
               <h3>All scheduled bouts complete.</h3>
-              <p>
-                {t.bracketRound
-                  ? "Visit the bracket to continue."
-                  : "Review standings and select your qualifiers."}
-              </p>
-              <button className="text-link" onClick={() => onTab("bracket")}>
-                Open bracket <ArrowRight size={15} />
-              </button>
+              {t.format !== "pools-only" && (
+                <>
+                  <p>
+                    {t.bracketRound
+                      ? "Visit the bracket to continue."
+                      : "Review standings and select your qualifiers."}
+                  </p>
+                  <button
+                    className="text-link"
+                    onClick={() => onTab("bracket")}
+                  >
+                    Open bracket <ArrowRight size={15} />
+                  </button>
+                </>
+              )}
             </div>
           )}
         </section>
@@ -669,7 +724,7 @@ function Overview({
               <span className="leader-name">
                 {r.name}
                 <small>
-                  Pool {poolName(r.pool)} · {r.played} bouts
+                  {poolLabel(r.pool)} · {r.played} bouts
                 </small>
               </span>
               <strong>{r.ranking}</strong>
@@ -677,19 +732,21 @@ function Overview({
           ))}
         </section>
       </div>
-      <div className="stage-strip">
-        <span className="stage-number">01</span>
-        <div>
-          <strong>Round robin</strong>
-          <span>Every pairing. Every point counts.</span>
+      {t.format !== "pools-only" && (
+        <div className="stage-strip">
+          <span className="stage-number">01</span>
+          <div>
+            <strong>Round robin</strong>
+            <span>Every pairing. Every point counts.</span>
+          </div>
+          <ArrowRight />
+          <span className="stage-number">02</span>
+          <div>
+            <strong>Single elimination</strong>
+            <span>Admin-selected qualifiers. One champion.</span>
+          </div>
         </div>
-        <ArrowRight />
-        <span className="stage-number">02</span>
-        <div>
-          <strong>Single elimination</strong>
-          <span>Admin-selected qualifiers. One champion.</span>
-        </div>
-      </div>
+      )}
     </>
   );
 }
@@ -817,7 +874,9 @@ function Matches({
                 Pool {poolName(i)}
               </option>
             ))}
-            <option value="bracket">Elimination</option>
+            {t.format !== "pools-only" && (
+              <option value="bracket">Elimination</option>
+            )}
           </select>
         </div>
       </div>
@@ -964,9 +1023,11 @@ function Bracket({
   const [selected, setSelected] = useState<string[]>([]);
   const [seeds, setSeeds] = useState<(string | null)[]>([]);
   const [pool, setPool] = useState("all");
-  const complete = t.matches
-    .filter((m) => m.stage === "pools")
-    .every((m) => m.status === "finished");
+  const complete =
+    t.matches.length > 0 &&
+    t.matches
+      .filter((m) => m.stage === "pools")
+      .every((m) => m.status === "finished");
   function toggle(id: string) {
     const next = selected.includes(id)
       ? selected.filter((x) => x !== id)
@@ -1040,7 +1101,7 @@ function Bracket({
                       <span>
                         {r.name}
                         <small>
-                          Pool {poolName(r.pool)} · {r.played} bouts
+                          {poolLabel(r.pool)} · {r.played} bouts
                         </small>
                       </span>
                       <strong>{r.ranking}</strong>
@@ -1323,65 +1384,16 @@ function Create({
   onClose: () => void;
   onCreate: (input: unknown) => Promise<void>;
 }) {
-  const [step, setStep] = useState(1);
   const [name, setName] = useState("");
   const [weapon, setWeapon] = useState("Longsword");
   const [initialDate] = useState(() => new Date().toLocaleDateString("en-CA"));
   const [date, setDate] = useState(initialDate);
+  const [format, setFormat] = useState<Tournament["format"]>(
+    "pools-and-elimination",
+  );
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [names, setNames] = useState("");
-  const [count, setCount] = useState(1);
-  const [people, setPeople] = useState<{ name: string; pool: number }[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  function next() {
-    const list = names
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (!name.trim() || !date || !weapon.trim()) {
-      setError("Enter a tournament name, weapon, and date.");
-      return;
-    }
-    if (list.length < 2 || list.length > 24) {
-      setError("Enter between 2 and 24 participant names, one per line.");
-      return;
-    }
-    if (list.some((n) => n.length > 60)) {
-      setError("Participant names must be 60 characters or fewer.");
-      return;
-    }
-    setPeople(list.map((name) => ({ name, pool: 0 })));
-    setCount(1);
-    setError("");
-    setStep(2);
-  }
-  function assign(n: number, shuffle = false) {
-    const updated = [...people];
-    if (shuffle)
-      for (let i = updated.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [updated[i], updated[j]] = [updated[j], updated[i]];
-      }
-    setCount(n);
-    setPeople(updated.map((p, i) => ({ ...p, pool: i % n })));
-  }
-  const sizes = Array.from(
-    { length: count },
-    (_, i) => people.filter((p) => p.pool === i).length,
-  );
-  const bouts = sizes.reduce((s, n) => s + (n * (n - 1)) / 2, 0);
-  const dirty =
-    name !== "" ||
-    names !== "" ||
-    weapon !== "Longsword" ||
-    date !== initialDate ||
-    step > 1;
-  function requestClose() {
-    if (busy) return;
-    if (dirty) setConfirmDiscard(true);
-    else onClose();
-  }
   if (confirmDiscard)
     return (
       <Modal
@@ -1389,10 +1401,7 @@ function Create({
         onClose={() => setConfirmDiscard(false)}
         dismissible={false}
       >
-        <p className="muted">
-          Your tournament has not been created yet. Discarding it will remove
-          the details and pool assignments you entered.
-        </p>
+        <p className="muted">Discard the unsaved tournament details?</p>
         <div className="modal-actions">
           <button
             className="secondary"
@@ -1410,168 +1419,419 @@ function Create({
   return (
     <Modal
       title="Create a tournament"
-      onClose={requestClose}
+      onClose={() => {
+        if (
+          name ||
+          weapon !== "Longsword" ||
+          date !== initialDate ||
+          format !== "pools-and-elimination"
+        )
+          setConfirmDiscard(true);
+        else onClose();
+      }}
       dismissible={false}
       closeDisabled={busy}
-      wide
     >
-      <div className="wizard-steps">
-        <span className={step === 1 ? "active" : ""}>01 · The field</span>
-        <span className={step === 2 ? "active" : ""}>
-          02 · Pools & pairings
-        </span>
-      </div>
-      {step === 1 ? (
-        <>
-          <div className="form-grid">
-            <label className="field span-two">
-              Tournament name
-              <input
-                autoFocus
-                placeholder="e.g. Autumn Longsword Open"
-                maxLength={60}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </label>
-            <label className="field">
-              Weapon
-              <input
-                maxLength={60}
-                value={weapon}
-                onChange={(e) => setWeapon(e.target.value)}
-              />
-            </label>
-            <label className="field">
-              Date
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-              />
-            </label>
-          </div>
-          <label className="field">
-            Participants{" "}
-            <span className="muted small">
-              One name per line · 2–24 fencers
-            </span>
-            <textarea
-              rows={8}
-              placeholder={"Alex Morgan\nJordan Lee\nSasha Reyes"}
-              value={names}
-              onChange={(e) => setNames(e.target.value)}
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          setError("");
+          try {
+            await onCreate({ name, weapon, date, format });
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "Unable to save draft.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <div className="form-grid">
+          <label className="field span-two">
+            Tournament name
+            <input
+              autoFocus
+              required
+              maxLength={60}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
             />
           </label>
-          {error && <Message>{error}</Message>}
-          <button className="primary full" onClick={next}>
-            Arrange pools <ArrowRight size={17} />
-          </button>
-        </>
-      ) : (
-        <>
-          <div className="section-heading">
-            <label className="field">
-              Number of pools
-              <select
-                value={count}
-                onChange={(e) => assign(Number(e.target.value))}
+          <label className="field">
+            Weapon
+            <input
+              required
+              maxLength={60}
+              value={weapon}
+              onChange={(e) => setWeapon(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            Date
+            <input
+              required
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </label>
+          <label className="field span-two">
+            Format
+            <select
+              value={format}
+              onChange={(e) =>
+                setFormat(e.target.value as Tournament["format"])
+              }
+            >
+              {formats.map((value) => (
+                <option key={value} value={value}>
+                  {formatLabels[value]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {error && <Message>{error}</Message>}
+        <button className="primary full" disabled={busy}>
+          {busy ? "Saving…" : "Save draft"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
+function Preparation({
+  t,
+  profiles,
+  busy,
+  run,
+  execute,
+}: {
+  t: Tournament;
+  profiles: FencerProfile[];
+  busy: boolean;
+  run: (command: Command) => void;
+  execute: (command: Command) => Promise<void>;
+}) {
+  const [profileId, setProfileId] = useState("");
+  const [name, setName] = useState("");
+  const [poolCount, setPoolCount] = useState(t.poolCount);
+  const [assignments, setAssignments] = useState(() =>
+    Object.fromEntries(t.participants.map((p) => [p.id, p.pool])),
+  );
+  const [correction, setCorrection] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const locked = poolMembershipLocked(t);
+  const editing =
+    poolCount !== t.poolCount ||
+    t.participants.some((p) => p.pool !== assignments[p.id]);
+  const pools = Array.from({ length: poolCount }, (_, pool) =>
+    t.participants.filter((p) => assignments[p.id] === pool),
+  );
+  const ready =
+    poolCount > 0 &&
+    pools.every((members) => members.length >= 2) &&
+    t.participants.every((p) => assignments[p.id] !== UNASSIGNED);
+  const available = profiles
+    .filter(
+      (profile) => !t.participants.some((p) => p.profileId === profile.id),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  return (
+    <div className="preparation">
+      <section className="panel">
+        <div className="panel-heading">
+          <h2>Fencers</h2>
+        </div>
+        {locked && (
+          <p className="notice">
+            Scoring has begun. Pool membership is locked. Event names can still
+            be corrected.
+          </p>
+        )}
+        {t.participants.map((p) => (
+          <div className="assignment" key={p.id}>
+            {correction?.id === p.id ? (
+              <form
+                className="preparation-controls"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void execute({
+                    type: "renameEntry",
+                    entryId: p.id,
+                    name: correction.name,
+                  })
+                    .then(() => setCorrection(null))
+                    .catch(() => {});
+                }}
               >
-                {Array.from(
-                  { length: Math.floor(people.length / 2) },
-                  (_, i) => (
-                    <option key={i} value={i + 1}>
-                      {i + 1} {i ? "pools" : "pool"}
-                    </option>
-                  ),
-                )}
-              </select>
-            </label>
-            <button className="secondary" onClick={() => assign(count, true)}>
-              <Shuffle size={16} />
-              Shuffle assignments
-            </button>
-          </div>
-          <div className="assignment-list">
-            {people.map((p, i) => (
-              <label key={i} className="assignment">
-                <span>{p.name}</span>
-                <select
-                  aria-label={`Pool for ${p.name}`}
-                  value={p.pool}
+                <input
+                  aria-label="Event name"
+                  autoFocus
+                  required
+                  maxLength={60}
+                  value={correction.name}
                   onChange={(e) =>
-                    setPeople(
-                      people.map((person, j) =>
-                        j === i
-                          ? { ...person, pool: Number(e.target.value) }
-                          : person,
-                      ),
-                    )
+                    setCorrection({ id: p.id, name: e.target.value })
                   }
+                />
+                <button className="primary" disabled={busy}>
+                  Save name
+                </button>
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() => setCorrection(null)}
                 >
-                  {Array.from({ length: count }, (_, n) => (
-                    <option key={n} value={n}>
-                      Pool {poolName(n)}
+                  Cancel
+                </button>
+              </form>
+            ) : (
+              <>
+                <strong>{p.name}</strong>
+                <div className="preparation-controls">
+                  <button
+                    className="secondary"
+                    aria-label={"Correct name for " + p.name}
+                    disabled={busy || editing}
+                    onClick={() => setCorrection({ id: p.id, name: p.name })}
+                  >
+                    Correct name
+                  </button>
+                  {!locked && (
+                    <button
+                      className="secondary"
+                      aria-label={"Remove " + p.name}
+                      disabled={busy || editing}
+                      onClick={() =>
+                        run({ type: "removeEntry", entryId: p.id })
+                      }
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+        {!locked && t.participants.length < 24 && (
+          <div className="preparation-add">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (profileId)
+                  run({ type: "addEntry", profile: { id: profileId } });
+              }}
+            >
+              <label className="field">
+                Existing fencer profile
+                <select
+                  value={profileId}
+                  onChange={(e) => setProfileId(e.target.value)}
+                  required
+                >
+                  <option value="">Select a fencer</option>
+                  {available.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                      {profiles.filter((item) => item.name === p.name).length >
+                      1
+                        ? " (" + p.id.slice(0, 8) + ")"
+                        : ""}
                     </option>
                   ))}
                 </select>
               </label>
-            ))}
-          </div>
-          <div className="notice">
-            <Swords size={20} />
-            <span>
-              <strong>
-                {people.length} fencers · {count} pools · {bouts} round-robin
-                bouts
-              </strong>
-              <br />
-              Each fencer meets everyone in their pool. Choose elimination
-              qualifiers later.
-            </span>
-          </div>
-          {sizes.some((n) => n < 2) && (
-            <Message>Each pool needs at least two fencers.</Message>
-          )}
-          {error && <Message>{error}</Message>}
-          <div className="modal-actions">
-            <button
-              className="secondary"
-              disabled={busy}
-              onClick={() => setStep(1)}
-            >
-              Back
-            </button>
-            <button
-              className="primary"
-              disabled={busy || sizes.some((n) => n < 2)}
-              onClick={async () => {
-                setBusy(true);
-                setError("");
-                try {
-                  await onCreate({
-                    name,
-                    weapon,
-                    date,
-                    participants: people,
-                    poolCount: count,
-                  });
-                } catch (e) {
-                  setError(
-                    e instanceof Error ? e.message : "Unable to create.",
-                  );
-                } finally {
-                  setBusy(false);
-                }
+              <button
+                className="secondary"
+                disabled={busy || editing || !profileId}
+              >
+                Add existing fencer
+              </button>
+            </form>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                run({ type: "addEntry", profile: { name } });
               }}
             >
-              {busy ? "Creating…" : "Create & generate matches"}
-              <Check size={17} />
-            </button>
+              <label className="field">
+                New fencer name
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={60}
+                  required
+                />
+              </label>
+              <button
+                className="secondary"
+                disabled={busy || editing || !name.trim()}
+              >
+                Create profile and add
+              </button>
+            </form>
           </div>
-        </>
-      )}
-    </Modal>
+        )}
+      </section>
+      <section className="panel">
+        <div className="panel-heading">
+          <h2>Pools</h2>
+        </div>
+        {!locked && (
+          <>
+            <div className="preparation-controls">
+              <label className="field">
+                Number of pools
+                <select
+                  value={poolCount}
+                  disabled={busy}
+                  onChange={(e) => {
+                    const count = Number(e.target.value);
+                    setPoolCount(count);
+                    setAssignments(
+                      Object.fromEntries(
+                        t.participants.map((p) => [
+                          p.id,
+                          assignments[p.id] < count
+                            ? assignments[p.id]
+                            : UNASSIGNED,
+                        ]),
+                      ),
+                    );
+                  }}
+                >
+                  {!poolCount && <option value={0}>Create pools</option>}
+                  {Array.from({ length: 12 }, (_, index) => (
+                    <option key={index} value={index + 1}>
+                      {index + 1}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {poolCount > 0 && t.participants.length > 0 && (
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    const shuffled = [...t.participants];
+                    for (let i = shuffled.length - 1; i > 0; i--) {
+                      const j = Math.floor(Math.random() * (i + 1));
+                      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+                    }
+                    setAssignments(
+                      Object.fromEntries(
+                        shuffled.map((p, i) => [p.id, i % poolCount]),
+                      ),
+                    );
+                  }}
+                >
+                  <Shuffle size={16} /> Shuffle assignments
+                </button>
+              )}
+            </div>
+            {poolCount > 0 &&
+              t.participants.map((p) => (
+                <label className="assignment" key={p.id}>
+                  <span>{p.name}</span>
+                  <select
+                    aria-label={"Pool for " + p.name}
+                    value={assignments[p.id]}
+                    disabled={busy}
+                    onChange={(e) =>
+                      setAssignments({
+                        ...assignments,
+                        [p.id]: Number(e.target.value),
+                      })
+                    }
+                  >
+                    <option value={UNASSIGNED}>Unassigned</option>
+                    {pools.map((_, index) => (
+                      <option key={index} value={index}>
+                        Pool {poolName(index)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+          </>
+        )}
+        <div className="preparation-pools">
+          {pools.map((members, index) => (
+            <div key={index}>
+              <h3>
+                Pool {poolName(index)} · {members.length} fencers
+              </h3>
+              <p>{members.map((p) => p.name).join(", ") || "Empty"}</p>
+            </div>
+          ))}
+        </div>
+        {!locked && (
+          <>
+            {poolCount > 0 && !ready && (
+              <p className="muted">
+                Assign every fencer and place at least two in each pool.
+              </p>
+            )}
+            {editing && t.matches.length > 0 && (
+              <p className="muted">
+                Saving these changes clears the current schedule.
+              </p>
+            )}
+            <div className="preparation-controls">
+              {editing && (
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    setPoolCount(t.poolCount);
+                    setAssignments(
+                      Object.fromEntries(
+                        t.participants.map((p) => [p.id, p.pool]),
+                      ),
+                    );
+                  }}
+                >
+                  Discard pool changes
+                </button>
+              )}
+              <button
+                className="secondary"
+                disabled={busy || !editing || !poolCount}
+                onClick={() =>
+                  run({
+                    type: "assignPools",
+                    poolCount,
+                    assignments: t.participants.map((p) => ({
+                      entryId: p.id,
+                      pool: assignments[p.id],
+                    })),
+                  })
+                }
+              >
+                Save pools
+              </button>
+              <button
+                className="primary"
+                disabled={busy || editing || !ready}
+                onClick={() => run({ type: "generateSchedule" })}
+              >
+                {t.matches.length ? "Regenerate schedule" : "Generate schedule"}
+              </button>
+            </div>
+          </>
+        )}
+        {t.matches.length > 0 && (
+          <p className="muted">
+            {t.matches.filter((m) => m.stage === "pools").length} scheduled pool
+            bouts
+          </p>
+        )}
+      </section>
+    </div>
   );
 }
 function Scoring({

@@ -1,6 +1,18 @@
 import { z } from "zod";
 
-export type Participant = { id: string; name: string; pool: number };
+export type Participant = {
+  id: string;
+  name: string;
+  pool: number;
+  profileId?: string;
+};
+export type FencerProfile = { id: string; name: string };
+export const formats = ["pools-and-elimination", "pools-only"] as const;
+export const formatLabels = {
+  "pools-and-elimination": "Pools and single elimination",
+  "pools-only": "Pools only",
+};
+export const UNASSIGNED = -1;
 export type ScoreEvent = {
   kind: "point" | "double";
   side: "a" | "b";
@@ -37,6 +49,8 @@ export type Tournament = {
   version: number;
   createdAt: number;
   updatedAt: number;
+  format?: (typeof formats)[number];
+  scoringStarted?: boolean;
   archivedAt?: number | null;
 };
 const text = z.string().trim().min(1).max(60);
@@ -52,10 +66,44 @@ export const createSchema = z
     poolCount: z.number().int().min(1).max(12),
   })
   .strict();
+export const draftSchema = createSchema
+  .pick({ name: true, weapon: true, date: true })
+  .extend({ format: z.enum(formats) });
+export const profileEntrySchema = z
+  .object({
+    type: z.literal("addEntry"),
+    profile: z.union([
+      z.object({ id: z.string().uuid() }).strict(),
+      z.object({ name: text }).strict(),
+    ]),
+  })
+  .strict();
 export const deleteSchema = z
   .object({ type: z.literal("delete"), confirmation: z.string() })
   .strict();
 export const commandSchema = z.discriminatedUnion("type", [
+  profileEntrySchema,
+  z.object({ type: z.literal("removeEntry"), entryId: z.string() }).strict(),
+  z
+    .object({ type: z.literal("renameEntry"), entryId: z.string(), name: text })
+    .strict(),
+  z
+    .object({
+      type: z.literal("assignPools"),
+      poolCount: z.number().int().min(1).max(12),
+      assignments: z
+        .array(
+          z
+            .object({
+              entryId: z.string(),
+              pool: z.number().int().min(UNASSIGNED).max(11),
+            })
+            .strict(),
+        )
+        .max(24),
+    })
+    .strict(),
+  z.object({ type: z.literal("generateSchedule") }).strict(),
   z.object({ type: z.literal("archive"), archived: z.boolean() }).strict(),
   z
     .object({
@@ -158,24 +206,59 @@ export function createTournament(
     ...p,
     id: `p${i + 1}`,
   }));
-  for (let pool = 0; pool < data.poolCount; pool++)
+  const { name, weapon, date, poolCount } = data;
+  const t = createDraft(
+    { name, weapon, date, format: "pools-and-elimination" },
+    id,
+    now,
+  );
+  t.poolCount = poolCount;
+  t.participants = participants;
+  t.matches = generatePoolMatches(t);
+  return t;
+}
+export function createDraft(
+  input: unknown,
+  id: string,
+  now: number,
+): Tournament {
+  const data = draftSchema.parse(input);
+  return {
+    id,
+    ...data,
+    poolCount: 0,
+    participants: [],
+    matches: [],
+    bracketSeeds: [],
+    bracketRound: 0,
+    version: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+function generatePoolMatches(
+  { participants, poolCount }: Tournament,
+  idPrefix = "",
+): Match[] {
+  assert(poolCount > 0, "Create at least one pool first.");
+  assert(
+    participants.every((p) => p.pool >= 0 && p.pool < poolCount),
+    "Assign every fencer to a pool before generating the schedule.",
+  );
+  for (let pool = 0; pool < poolCount; pool++)
     assert(
       participants.filter((p) => p.pool === pool).length >= 2,
       "Each pool needs at least two participants.",
     );
-  assert(
-    participants.every((p) => p.pool < data.poolCount),
-    "Invalid pool assignment.",
-  );
   const matches: Match[] = [];
-  for (let pool = 0; pool < data.poolCount; pool++)
+  for (let pool = 0; pool < poolCount; pool++)
     roundRobin(
       participants.filter((p) => p.pool === pool).map((p) => p.id),
     ).forEach((pairs, round) =>
       pairs.forEach(([a, b], slot) =>
         matches.push(
           emptyMatch(
-            `p${pool}r${round}m${slot}`,
+            `${idPrefix}p${pool}r${round}m${slot}`,
             a,
             b,
             round + 1,
@@ -189,20 +272,24 @@ export function createTournament(
   matches.sort(
     (a, b) => a.round - b.round || a.pool - b.pool || a.slot - b.slot,
   );
-  return {
-    id,
-    name: data.name,
-    weapon: data.weapon,
-    date: data.date,
-    poolCount: data.poolCount,
-    participants,
-    matches,
-    bracketSeeds: [],
-    bracketRound: 0,
-    version: 0,
-    createdAt: now,
-    updatedAt: now,
-  };
+  return matches;
+}
+export function poolMembershipLocked(t: Tournament) {
+  return (
+    !!t.scoringStarted ||
+    t.bracketRound > 0 ||
+    t.matches.some(
+      (m) =>
+        m.status !== "upcoming" ||
+        m.elapsedMs > 0 ||
+        m.startedAt !== null ||
+        m.scoreA > 0 ||
+        m.scoreB > 0 ||
+        m.doubles > 0 ||
+        m.events.length > 0 ||
+        m.result !== null,
+    )
+  );
 }
 export function elapsed(match: Match, now: number) {
   return (
@@ -289,6 +376,7 @@ export function applyCommand(
   source: Tournament,
   raw: unknown,
   now: number,
+  entry?: { id: string; profile: FencerProfile },
 ): Tournament {
   const c = commandSchema.parse(raw);
   const t = structuredClone(source);
@@ -307,7 +395,74 @@ export function applyCommand(
     !t.archivedAt,
     "Restore this archived tournament before making changes.",
   );
-  if (c.type === "bracket") {
+  if (c.type === "renameEntry") {
+    const entry = t.participants.find((p) => p.id === c.entryId);
+    assert(entry, "Fencer entry not found.");
+    entry.name = c.name;
+  } else if (
+    c.type === "addEntry" ||
+    c.type === "removeEntry" ||
+    c.type === "assignPools" ||
+    c.type === "generateSchedule"
+  ) {
+    assert(
+      !poolMembershipLocked(t),
+      "Pool membership is locked because scoring has begun.",
+    );
+    if (c.type === "addEntry") {
+      assert(entry, "Fencer profile not found.");
+      const { id, profile } = entry;
+      assert(
+        t.participants.length < 24,
+        "A tournament can have up to 24 fencers.",
+      );
+      assert(
+        !t.participants.some((p) => p.profileId === profile.id),
+        "This fencer is already entered.",
+      );
+      t.participants.push({
+        id,
+        profileId: profile.id,
+        name: profile.name,
+        pool: UNASSIGNED,
+      });
+    } else if (c.type === "removeEntry") {
+      assert(
+        t.participants.some((p) => p.id === c.entryId),
+        "Fencer entry not found.",
+      );
+      t.participants = t.participants.filter((p) => p.id !== c.entryId);
+    } else if (c.type === "assignPools") {
+      const assignments = new Map(
+        c.assignments.map(({ entryId, pool }) => [entryId, pool]),
+      );
+      assert(
+        c.assignments.length === t.participants.length &&
+          t.participants.every((p) => assignments.has(p.id)) &&
+          c.assignments.every((assignment) => assignment.pool < c.poolCount),
+        "Assign each entry once and select a valid pool.",
+      );
+      if (
+        t.poolCount === c.poolCount &&
+        t.participants.every((p) => assignments.get(p.id) === p.pool)
+      )
+        return t;
+      t.poolCount = c.poolCount;
+      for (const p of t.participants) p.pool = assignments.get(p.id)!;
+    }
+    t.matches =
+      c.type === "generateSchedule"
+        ? generatePoolMatches(t, "v" + (t.version + 1) + "-")
+        : [];
+  } else if (c.type === "bracket") {
+    assert(
+      t.format !== "pools-only",
+      "This tournament uses a pools-only format.",
+    );
+    assert(
+      t.matches.some((m) => m.stage === "pools"),
+      "Generate the pool schedule first.",
+    );
     assert(!t.bracketRound, "The bracket is already confirmed.");
     assert(
       t.matches
@@ -423,6 +578,13 @@ export function applyCommand(
         m.result = c.result;
       }
       m.events = m.events.slice(-20);
+      if (
+        c.type === "score" ||
+        c.type === "double" ||
+        c.type === "submit" ||
+        (c.type === "timer" && (c.action === "start" || m.elapsedMs > 0))
+      )
+        t.scoringStarted = true;
     }
   }
   t.version++;

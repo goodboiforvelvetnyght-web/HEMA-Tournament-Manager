@@ -1903,3 +1903,37 @@ td {
   border-top: 1px solid var(--border);
   margin: 25px 0;
 }
+
+.preparation {
+  display: grid;
+  gap: 1rem;
+}
+.preparation > .panel {
+  padding: 1.25rem;
+}
+.preparation .panel-heading {
+  padding: 0 0 1rem;
+}
+.preparation-controls,
+.preparation-add,
+.preparation-pools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+.preparation-add,
+.preparation-pools {
+  margin-block: 1rem;
+}
+.preparation-add > form,
+.preparation-pools > div {
+  flex: 1 1 14rem;
+}
+.preparation .assignment {
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.preparation .field {
+  margin: 0 0 0.5rem;
+}

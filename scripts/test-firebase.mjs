@@ -105,6 +105,115 @@ try {
       code: "permission-denied",
     }),
   );
+  await check(
+    "private draft, persistent profiles, explicit scheduling and scoring lock",
+    async () => {
+      const draftId = randomUUID();
+      const secondId = randomUUID();
+      const firstProfile = randomUUID();
+      const secondProfile = randomUUID();
+      const draftRef = doc(adminDb, "tournamentDrafts", draftId);
+      const publishedRef = doc(db, "tournaments", draftId);
+      const details = {
+        name: "Preparation Cup",
+        weapon: "Sabre",
+        date: "2026-11-22",
+        format: "pools-only",
+      };
+      const send = (
+        expectedVersion,
+        command,
+        requestId = randomUUID(),
+        tournamentId = draftId,
+      ) => mutate({ tournamentId, expectedVersion, requestId, command });
+      await send(-1, details);
+      assert.deepEqual((await getDoc(draftRef)).data().participants, []);
+      await assert.rejects(getDoc(doc(db, "tournamentDrafts", draftId)), {
+        code: "permission-denied",
+      });
+      assert.equal((await getDoc(publishedRef)).exists(), false);
+      await assert.rejects(
+        send(0, { type: "generateSchedule" }),
+        /Create at least one pool/,
+      );
+      await send(
+        0,
+        { type: "addEntry", profile: { name: "Alex" } },
+        firstProfile,
+      );
+      await send(
+        1,
+        { type: "addEntry", profile: { name: "Blake" } },
+        secondProfile,
+      );
+      await assert.rejects(getDoc(doc(db, "fencerProfiles", firstProfile)), {
+        code: "permission-denied",
+      });
+      await assert.rejects(
+        send(2, { type: "addEntry", profile: { id: firstProfile } }),
+        /already entered/,
+      );
+      const [alex, blake] = (await getDoc(draftRef)).data().participants;
+      const assign = (expectedVersion, poolCount, firstPool, secondPool) =>
+        send(expectedVersion, {
+          type: "assignPools",
+          poolCount,
+          assignments: [
+            { entryId: alex.id, pool: firstPool },
+            { entryId: blake.id, pool: secondPool },
+          ],
+        });
+      await assign(2, 1, 0, 0);
+      assert.deepEqual((await getDoc(draftRef)).data().matches, []);
+      await send(3, { type: "generateSchedule" });
+      assert.equal((await getDoc(draftRef)).exists(), false);
+      assert.equal((await getDoc(publishedRef)).data().matches.length, 1);
+      await assign(4, 2, 0, 1);
+      assert.deepEqual((await getDoc(publishedRef)).data().matches, []);
+      await assert.rejects(
+        send(5, { type: "generateSchedule" }),
+        /at least two participants/,
+      );
+      await assign(5, 1, 0, 0);
+      await send(6, { type: "generateSchedule" });
+      const [bout] = (await getDoc(publishedRef)).data().matches;
+      await send(7, { type: "score", matchId: bout.id, side: "a", delta: 1 });
+      await send(8, { type: "undo", matchId: bout.id });
+      await assert.rejects(send(9, { type: "generateSchedule" }), /locked/);
+      await assert.rejects(
+        send(9, { type: "removeEntry", entryId: alex.id }),
+        /locked/,
+      );
+      await assert.rejects(assign(9, 2, 0, 1), /locked/);
+      await assert.rejects(
+        send(9, { type: "bracket", seeds: [alex.id, blake.id] }),
+        /pools-only/,
+      );
+      await send(9, { type: "submit", matchId: bout.id, result: "draw" });
+      await send(10, {
+        type: "renameEntry",
+        entryId: alex.id,
+        name: "Alex Jones",
+      });
+      const corrected = (await getDoc(publishedRef)).data();
+      assert.equal(corrected.participants[0].name, "Alex Jones");
+      assert.equal(corrected.matches[0].result, "draw");
+      assert.equal(corrected.matches[0].a, bout.a);
+      await send(-1, details, randomUUID(), secondId);
+      await send(
+        0,
+        { type: "addEntry", profile: { id: firstProfile } },
+        randomUUID(),
+        secondId,
+      );
+      const other = (
+        await getDoc(doc(adminDb, "tournamentDrafts", secondId))
+      ).data();
+      assert.equal(other.participants[0].name, "Alex");
+      assert.equal(other.participants[0].profileId, firstProfile);
+      assert.notEqual(other.participants[0].id, alex.id);
+    },
+  );
   const match = (await getDoc(doc(db, "tournaments", id))).data().matches[0];
   const score = {
     tournamentId: id,
